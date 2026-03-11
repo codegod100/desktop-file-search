@@ -11,7 +11,6 @@
   }: let
     systems = ["x86_64-linux" "aarch64-linux"];
     forAllSystems = nixpkgs.lib.genAttrs systems;
-    zigVersion = "0.15.2";
   in {
     devShells = forAllSystems (system: let
       pkgs = nixpkgs.legacyPackages.${system};
@@ -64,13 +63,17 @@
         ];
 
         buildPhase = ''
-          export HOME=$TMPDIR
-          zig build -Doptimize=ReleaseSafe
+          zig build --release=safe
         '';
 
         installPhase = ''
           mkdir -p $out/bin
           cp zig-out/bin/desktop-file-search $out/bin/
+          
+          mkdir -p $out/share/applications
+          cp desktop-file-search.desktop $out/share/applications/
+          substituteInPlace $out/share/applications/desktop-file-search.desktop \
+            --replace "Exec=desktop-file-search" "Exec=$out/bin/desktop-file-search"
         '';
       };
     });
