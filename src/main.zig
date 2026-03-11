@@ -1221,8 +1221,8 @@ pub fn main() void {
     const app = c.gtk_application_new("com.example.desktopfilesearch", c.G_APPLICATION_DEFAULT_FLAGS);
     defer c.g_object_unref(app);
 
-    // Set default icon for all windows
-    c.gtk_window_set_default_icon_name("preferences-desktop");
+    // Set default icon for all windows - use a standard icon
+    c.gtk_window_set_default_icon_name("folder");
 
     _ = c.g_signal_connect_data(app, "activate", @ptrCast(&onActivate), null, null, c.G_CONNECT_DEFAULT);
     _ = c.g_signal_connect_data(app, "shutdown", @ptrCast(&onShutdown), null, null, c.G_CONNECT_DEFAULT);
