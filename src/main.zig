@@ -557,6 +557,19 @@ fn createResultRow(entry: *const DesktopEntry, index: usize) ?*c.GtkWidget {
     c.pango_attr_list_unref(name_attrs);
     c.gtk_box_append(@ptrCast(vbox), name_label);
 
+    // Comment label (if exists)
+    if (entry.comment.len > 0) {
+        const comment_z = allocator.dupeZ(u8, entry.comment) catch return null;
+        defer allocator.free(comment_z);
+        const comment_label = c.gtk_label_new(comment_z.ptr);
+        c.gtk_widget_set_halign(comment_label, c.GTK_ALIGN_START);
+        c.gtk_label_set_xalign(@ptrCast(comment_label), 0.0);
+        c.gtk_widget_add_css_class(comment_label, "dim-label");
+        c.gtk_label_set_wrap(@ptrCast(comment_label), 1);
+        c.gtk_widget_add_css_class(comment_label, "caption");
+        c.gtk_box_append(@ptrCast(vbox), comment_label);
+    }
+
     // Path label
     const path_z = allocator.dupeZ(u8, entry.path) catch return null;
     defer allocator.free(path_z);
