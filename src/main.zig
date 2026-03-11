@@ -13,10 +13,20 @@ const DesktopEntry = struct {
     path: []const u8,
     exec: []const u8,
     package: []const u8,
+    comment: []const u8,
+    desktop_type: []const u8,
+    categories: []const u8,
+    mimetypes: []const u8,
+    terminal: bool = false,
+    startup_notify: bool = false,
     name_owned: bool = false,
     icon_owned: bool = false,
     exec_owned: bool = false,
     package_owned: bool = false,
+    comment_owned: bool = false,
+    desktop_type_owned: bool = false,
+    categories_owned: bool = false,
+    mimetypes_owned: bool = false,
 };
 
 const PackageInfo = struct {
@@ -79,9 +89,19 @@ fn loadDesktopFile(path: []const u8) ?DesktopEntry {
     var name: ?[]const u8 = null;
     var icon: ?[]const u8 = null;
     var exec: ?[]const u8 = null;
+    var comment: ?[]const u8 = null;
+    var desktop_type: ?[]const u8 = null;
+    var categories: ?[]const u8 = null;
+    var mimetypes: ?[]const u8 = null;
     var name_owned = false;
     var icon_owned = false;
     var exec_owned = false;
+    var comment_owned = false;
+    var desktop_type_owned = false;
+    var categories_owned = false;
+    var mimetypes_owned = false;
+    var terminal = false;
+    var startup_notify = false;
     var in_desktop_entry = false;
 
     // Read entire file into memory
@@ -116,6 +136,28 @@ fn loadDesktopFile(path: []const u8) ?DesktopEntry {
             const val = trimmed[5..];
             exec = allocator.dupe(u8, val) catch null;
             if (exec != null) exec_owned = true;
+        } else if (std.mem.startsWith(u8, trimmed, "Comment=")) {
+            const val = trimmed[8..];
+            comment = allocator.dupe(u8, val) catch null;
+            if (comment != null) comment_owned = true;
+        } else if (std.mem.startsWith(u8, trimmed, "Type=")) {
+            const val = trimmed[5..];
+            desktop_type = allocator.dupe(u8, val) catch null;
+            if (desktop_type != null) desktop_type_owned = true;
+        } else if (std.mem.startsWith(u8, trimmed, "Categories=")) {
+            const val = trimmed[11..];
+            categories = allocator.dupe(u8, val) catch null;
+            if (categories != null) categories_owned = true;
+        } else if (std.mem.startsWith(u8, trimmed, "MimeType=")) {
+            const val = trimmed[9..];
+            mimetypes = allocator.dupe(u8, val) catch null;
+            if (mimetypes != null) mimetypes_owned = true;
+        } else if (std.mem.startsWith(u8, trimmed, "Terminal=")) {
+            const val = trimmed[9..];
+            terminal = std.mem.eql(u8, val, "true");
+        } else if (std.mem.startsWith(u8, trimmed, "StartupNotify=")) {
+            const val = trimmed[14..];
+            startup_notify = std.mem.eql(u8, val, "true");
         }
     }
 
@@ -124,6 +166,10 @@ fn loadDesktopFile(path: []const u8) ?DesktopEntry {
             if (name_owned) allocator.free(n);
             if (icon) |i| if (icon_owned) allocator.free(i);
             if (exec) |e| if (exec_owned) allocator.free(e);
+            if (comment) |com| if (comment_owned) allocator.free(com);
+            if (desktop_type) |t| if (desktop_type_owned) allocator.free(t);
+            if (categories) |cat| if (categories_owned) allocator.free(cat);
+            if (mimetypes) |mt| if (mimetypes_owned) allocator.free(mt);
             return null;
         };
         
@@ -136,10 +182,20 @@ fn loadDesktopFile(path: []const u8) ?DesktopEntry {
             .path = path_copy,
             .exec = exec orelse "",
             .package = "",
+            .comment = comment orelse "",
+            .desktop_type = desktop_type orelse "Application",
+            .categories = categories orelse "",
+            .mimetypes = mimetypes orelse "",
+            .terminal = terminal,
+            .startup_notify = startup_notify,
             .name_owned = name_owned,
             .icon_owned = icon_owned,
             .exec_owned = exec_owned,
             .package_owned = false,
+            .comment_owned = comment_owned,
+            .desktop_type_owned = desktop_type_owned,
+            .categories_owned = categories_owned,
+            .mimetypes_owned = mimetypes_owned,
         };
     }
 
@@ -385,6 +441,10 @@ fn freeDesktopEntries(entries: *DesktopEntryList) void {
         if (entry.icon_owned) allocator.free(entry.icon);
         if (entry.exec_owned) allocator.free(entry.exec);
         if (entry.package_owned) allocator.free(entry.package);
+        if (entry.comment_owned) allocator.free(entry.comment);
+        if (entry.desktop_type_owned) allocator.free(entry.desktop_type);
+        if (entry.categories_owned) allocator.free(entry.categories);
+        if (entry.mimetypes_owned) allocator.free(entry.mimetypes);
         allocator.free(entry.path);
     }
     entries.deinit();
@@ -584,6 +644,91 @@ fn showDetailDialog(entry: *const DesktopEntry) void {
     c.gtk_widget_set_margin_top(sep, 8);
     c.gtk_widget_set_margin_bottom(sep, 8);
     c.gtk_box_append(@ptrCast(content_area), sep);
+    
+    // Desktop Entry info section
+    const de_frame = c.gtk_frame_new("Desktop Entry");
+    c.gtk_widget_set_margin_bottom(de_frame, 12);
+    c.gtk_box_append(@ptrCast(content_area), de_frame);
+    
+    const de_box = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 4);
+    c.gtk_widget_set_margin_start(de_box, 12);
+    c.gtk_widget_set_margin_end(de_box, 12);
+    c.gtk_widget_set_margin_top(de_box, 12);
+    c.gtk_widget_set_margin_bottom(de_box, 12);
+    c.gtk_frame_set_child(@ptrCast(de_frame), de_box);
+    
+    // Type
+    if (entry.desktop_type.len > 0) {
+        const type_box = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 8);
+        c.gtk_box_append(@ptrCast(de_box), type_box);
+        const type_title = c.gtk_label_new("Type:");
+        c.gtk_widget_add_css_class(type_title, "dim-label");
+        c.gtk_widget_add_css_class(type_title, "caption");
+        c.gtk_box_append(@ptrCast(type_box), type_title);
+        const type_label = c.gtk_label_new(entry.desktop_type.ptr);
+        c.gtk_widget_add_css_class(type_label, "caption");
+        c.gtk_box_append(@ptrCast(type_box), type_label);
+    }
+    
+    // Comment
+    if (entry.comment.len > 0) {
+        const comment_box = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 8);
+        c.gtk_box_append(@ptrCast(de_box), comment_box);
+        const comment_title = c.gtk_label_new("Comment:");
+        c.gtk_widget_add_css_class(comment_title, "dim-label");
+        c.gtk_widget_add_css_class(comment_title, "caption");
+        c.gtk_box_append(@ptrCast(comment_box), comment_title);
+        const comment_label = c.gtk_label_new(entry.comment.ptr);
+        c.gtk_label_set_wrap(@ptrCast(comment_label), 1);
+        c.gtk_widget_add_css_class(comment_label, "caption");
+        c.gtk_box_append(@ptrCast(comment_box), comment_label);
+    }
+    
+    // Categories
+    if (entry.categories.len > 0) {
+        const cat_box = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 8);
+        c.gtk_box_append(@ptrCast(de_box), cat_box);
+        const cat_title = c.gtk_label_new("Categories:");
+        c.gtk_widget_add_css_class(cat_title, "dim-label");
+        c.gtk_widget_add_css_class(cat_title, "caption");
+        c.gtk_box_append(@ptrCast(cat_box), cat_title);
+        const cat_label = c.gtk_label_new(entry.categories.ptr);
+        c.gtk_widget_add_css_class(cat_label, "caption");
+        c.gtk_label_set_xalign(@ptrCast(cat_label), 0.0);
+        c.gtk_box_append(@ptrCast(cat_box), cat_label);
+    }
+    
+    // MimeType
+    if (entry.mimetypes.len > 0) {
+        const mime_box = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 8);
+        c.gtk_box_append(@ptrCast(de_box), mime_box);
+        const mime_title = c.gtk_label_new("MimeType:");
+        c.gtk_widget_add_css_class(mime_title, "dim-label");
+        c.gtk_widget_add_css_class(mime_title, "caption");
+        c.gtk_box_append(@ptrCast(mime_box), mime_title);
+        const mime_label = c.gtk_label_new(entry.mimetypes.ptr);
+        c.gtk_label_set_wrap(@ptrCast(mime_label), 1);
+        c.gtk_widget_add_css_class(mime_label, "caption");
+        c.gtk_box_append(@ptrCast(mime_box), mime_label);
+    }
+    
+    // Terminal and StartupNotify row
+    const flags_box = c.gtk_box_new(c.GTK_ORIENTATION_HORIZONTAL, 16);
+    c.gtk_box_append(@ptrCast(de_box), flags_box);
+    
+    if (entry.terminal) {
+        const term_label = c.gtk_label_new("☐ Runs in Terminal");
+        c.gtk_widget_add_css_class(term_label, "caption");
+        c.gtk_widget_add_css_class(term_label, "dim-label");
+        c.gtk_box_append(@ptrCast(flags_box), term_label);
+    }
+    
+    if (entry.startup_notify) {
+        const notify_label = c.gtk_label_new("☐ Startup Notify");
+        c.gtk_widget_add_css_class(notify_label, "caption");
+        c.gtk_widget_add_css_class(notify_label, "dim-label");
+        c.gtk_box_append(@ptrCast(flags_box), notify_label);
+    }
     
     // Package info section
     if (pkg_info) |info| {
