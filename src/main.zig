@@ -1138,6 +1138,7 @@ export fn onActivate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(.c
     main_window = window;
     c.gtk_window_set_title(@ptrCast(window), "Desktop File Search");
     c.gtk_window_set_default_size(@ptrCast(window), 800, 600);
+    c.gtk_window_set_icon_name(@ptrCast(window), "system-search");
 
     // Main container
     const main_box = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 12);
