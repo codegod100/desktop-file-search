@@ -1138,7 +1138,8 @@ export fn onActivate(app: *c.GtkApplication, user_data: ?*anyopaque) callconv(.c
     main_window = window;
     c.gtk_window_set_title(@ptrCast(window), "Desktop File Search");
     c.gtk_window_set_default_size(@ptrCast(window), 800, 600);
-    c.gtk_window_set_icon_name(@ptrCast(window), "display-with-window-symbolic");
+    // Set window icon - try preferences-desktop
+    c.gtk_window_set_icon_name(@ptrCast(window), "preferences-desktop");
 
     // Main container
     const main_box = c.gtk_box_new(c.GTK_ORIENTATION_VERTICAL, 12);
@@ -1219,6 +1220,9 @@ pub fn main() void {
 
     const app = c.gtk_application_new("com.example.desktopfilesearch", c.G_APPLICATION_DEFAULT_FLAGS);
     defer c.g_object_unref(app);
+
+    // Set default icon for all windows
+    c.gtk_window_set_default_icon_name("preferences-desktop");
 
     _ = c.g_signal_connect_data(app, "activate", @ptrCast(&onActivate), null, null, c.G_CONNECT_DEFAULT);
     _ = c.g_signal_connect_data(app, "shutdown", @ptrCast(&onShutdown), null, null, c.G_CONNECT_DEFAULT);
