@@ -192,37 +192,50 @@ fn lookupPacmanPackage(exec_line: []const u8) ?[]const u8 {
         exec_end += 1;
     }
     
-    if (exec_end <= start) {
-        c.g_print("lookupPacmanPackage: exec_end <= start\n");
-        return null;
-    }
+    if (exec_end <= start) return null;
     const exec_name = exec_line[start..exec_end];
-    c.g_print("lookupPacmanPackage: exec_name='%.*s'\n", @as(c_int, @intCast(exec_name.len)), exec_name.ptr);
     
     // For pacman -Qo, we need the path to query. Use full path if absolute
-    const query_path = if (exec_name[0] == '/') exec_name else std.fs.path.basename(exec_name);
-    c.g_print("lookupPacmanPackage: query_path='%.*s'\n", @as(c_int, @intCast(query_path.len)), query_path.ptr);
+    const query_path = if (exec_name.len > 0 and exec_name[0] == '/') exec_name else std.fs.path.basename(exec_name);
     if (query_path.len == 0) return null;
     
-    // For relative paths, we can't easily check - just skip
+    // For relative paths, try to find in PATH
+    var resolved_path: ?[]const u8 = null;
     if (query_path[0] != '/') {
-        c.g_print("lookupPacmanPackage: relative path, skipping\n");
-        return null;
+        // Try to find in PATH using 'which' command
+        const which_result = std.process.Child.run(.{
+            .allocator = allocator,
+            .argv = &.{ "which", query_path },
+        }) catch null;
+        
+        if (which_result) |wr| {
+            defer {
+                if (wr.stdout.len > 0) allocator.free(wr.stdout);
+                if (wr.stderr.len > 0) allocator.free(wr.stderr);
+            }
+            if (wr.term == .Exited and wr.term.Exited == 0 and wr.stdout.len > 0) {
+                // Trim newline from which output
+                const trimmed = std.mem.trim(u8, wr.stdout, " \n\r\t");
+                if (trimmed.len > 0) {
+                    resolved_path = allocator.dupe(u8, trimmed) catch null;
+                }
+            }
+        }
+        
+        if (resolved_path == null) return null;
     }
+    defer if (resolved_path) |rp| allocator.free(rp);
+    
+    const final_path = if (resolved_path) |rp| rp else query_path;
     
     // Copy to buffer for null termination
-    const exec_z = std.fmt.bufPrintZ(&exec_buf, "{s}", .{query_path}) catch return null;
-    
-    c.g_print("Looking up package for: %s\n", exec_z.ptr);
+    const exec_z = std.fmt.bufPrintZ(&exec_buf, "{s}", .{final_path}) catch return null;
     
     // Run pacman -Qo to find the package
     const result = std.process.Child.run(.{
         .allocator = allocator,
         .argv = &.{ "pacman", "-Qo", exec_z },
-    }) catch |err| {
-        c.g_print("Child.run failed: %d\n", @intFromError(err));
-        return null;
-    };
+    }) catch return null;
     
     defer {
         if (result.stdout.len > 0) allocator.free(result.stdout);
@@ -231,42 +244,30 @@ fn lookupPacmanPackage(exec_line: []const u8) ?[]const u8 {
     
     // Check exit code
     if (result.term != .Exited or result.term.Exited != 0) {
-        const exit_code = if (result.term == .Exited) result.term.Exited else 255;
-        c.g_print("pacman -Qo failed with exit code: %d\n", @as(c_int, @intCast(exit_code)));
-        if (result.stderr.len > 0) {
-            c.g_print("stderr: %.*s\n", @as(c_int, @intCast(result.stderr.len)), result.stderr.ptr);
-        }
         return null;
     }
     
-    c.g_print("pacman stdout: %.*s\n", @as(c_int, @intCast(result.stdout.len)), result.stdout.ptr);
-    
     // Parse output: "/usr/bin/zed is owned by zed 0.171.0-1"
     const stdout = result.stdout;
-    c.g_print("Parsing stdout (len=%d): %.*s\n", @as(c_int, @intCast(stdout.len)), @as(c_int, @intCast(stdout.len)), stdout.ptr);
     if (stdout.len == 0) return null;
     
-    const needle = "is owned by ";
-    c.g_print("Looking for: '%s'\n", needle.ptr);
-    
-    if (std.mem.indexOf(u8, stdout, needle)) |idx| {
-        c.g_print("Found at index: %d\n", @as(c_int, @intCast(idx)));
-        const after = stdout[idx + needle.len ..];
-        c.g_print("After match: %.*s\n", @as(c_int, @intCast(after.len)), after.ptr);
+    // Find "is owned by" - note: might have variable spacing
+    if (std.mem.indexOf(u8, stdout, "is owned by")) |idx| {
+        // Skip past "is owned by" and any following spaces
+        var start_idx = idx + 11; // 11 = len("is owned by")
+        while (start_idx < stdout.len and stdout[start_idx] == ' ') {
+            start_idx += 1;
+        }
         
-        // Find the package name (first word after "is owned by ")
-        var pkg_end: usize = 0;
-        while (pkg_end < after.len and after[pkg_end] != ' ' and after[pkg_end] != '\n') {
-            pkg_end += 1;
+        // Find end of package name (space or newline)
+        var end_idx = start_idx;
+        while (end_idx < stdout.len and stdout[end_idx] != ' ' and stdout[end_idx] != '\n') {
+            end_idx += 1;
         }
-        c.g_print("Package name length: %d\n", @as(c_int, @intCast(pkg_end)));
-        if (pkg_end > 0) {
-            const pkg = allocator.dupe(u8, after[0..pkg_end]) catch return null;
-            c.g_print("Found package name: %.*s\n", @as(c_int, @intCast(pkg.len)), pkg.ptr);
-            return pkg;
+        
+        if (end_idx > start_idx) {
+            return allocator.dupe(u8, stdout[start_idx..end_idx]) catch null;
         }
-    } else {
-        c.g_print("Did not find 'is owned by' in output\n");
     }
     
     return null;
@@ -512,22 +513,14 @@ fn createResultRow(entry: *const DesktopEntry, index: usize) ?*c.GtkWidget {
 fn showDetailDialog(entry: *const DesktopEntry) void {
     if (main_window == null) return;
 
-    c.g_print("showDetailDialog: name='%.*s' (len=%d)\n", @as(c_int, @intCast(entry.name.len)), entry.name.ptr, @as(c_int, @intCast(entry.name.len)));
+    // Debug removed - was causing issues
     
     // Get package info - lookup NOW, not during scan
     var pkg_info: ?PackageInfo = null;
     if (entry.exec.len > 0) {
         if (lookupPacmanPackage(entry.exec)) |pkg_name| {
-            c.g_print("Found package: %s\n", pkg_name.ptr);
             pkg_info = getPackageInfo(pkg_name);
             allocator.free(pkg_name);
-            if (pkg_info) |pi| {
-                c.g_print("Package info: name='%s' version='%s'\n", pi.name.ptr, pi.version.ptr);
-            } else {
-                c.g_print("Failed to get package info from pacman -Qi\n");
-            }
-        } else {
-            c.g_print("lookupPacmanPackage returned null\n");
         }
     }
 
@@ -593,9 +586,7 @@ fn showDetailDialog(entry: *const DesktopEntry) void {
     c.gtk_box_append(@ptrCast(content_area), sep);
     
     // Package info section
-    c.g_print("Creating package section, pkg_info is %s\n", if (pkg_info != null) @as([*:0]const u8, "present") else @as([*:0]const u8, "null"));
     if (pkg_info) |info| {
-        c.g_print("Creating package frame for: %s\n", info.name.ptr);
         const pkg_frame = c.gtk_frame_new(null);
         c.gtk_widget_set_margin_bottom(pkg_frame, 12);
         c.gtk_box_append(@ptrCast(content_area), pkg_frame);
@@ -646,15 +637,10 @@ fn showDetailDialog(entry: *const DesktopEntry) void {
             c.gtk_widget_add_css_class(url_label_title, "caption");
             c.gtk_box_append(@ptrCast(url_box), url_label_title);
             
-            const url_label = c.gtk_label_new(info.url.ptr);
-            c.gtk_widget_add_css_class(url_label, "caption");
-            c.gtk_label_set_xalign(@ptrCast(url_label), 0.0);
-            const url_attrs = c.pango_attr_list_new();
-            const url_mono = c.pango_attr_family_new("monospace");
-            c.pango_attr_list_insert(url_attrs, url_mono);
-            c.gtk_label_set_attributes(@ptrCast(url_label), url_attrs);
-            c.pango_attr_list_unref(url_attrs);
-            c.gtk_box_append(@ptrCast(url_box), url_label);
+            // Clickable URL link
+            const url_link = c.gtk_link_button_new(info.url.ptr);
+            c.gtk_widget_add_css_class(url_link, "caption");
+            c.gtk_box_append(@ptrCast(url_box), url_link);
         }
         
         // License
@@ -791,11 +777,6 @@ fn showDetailDialog(entry: *const DesktopEntry) void {
     }
 
     c.gtk_widget_show(@ptrCast(dialog));
-    
-    // Clean up package info after dialog is shown (GTK has copied the strings)
-    if (pkg_info) |*info| {
-        freePackageInfo(info);
-    }
 }
 
 export fn onCloseClicked(btn: *c.GtkButton, user_data: ?*anyopaque) callconv(.c) void {
