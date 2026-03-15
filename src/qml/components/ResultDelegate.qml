@@ -12,6 +12,7 @@ Rectangle {
     required property string comment
     required property var theme
     required property bool current
+    readonly property int iconPendingRevision: backend ? backend.iconPendingRevision : 0
 
     signal activated()
 
@@ -43,13 +44,19 @@ Rectangle {
             border.width: 1
             border.color: theme.borderStrong
 
-            Image {
+            AsyncIcon {
                 anchors.centerIn: parent
                 width: 32
                 height: 32
-                source: "image://desktopicons/" + encodeURIComponent(root.icon || "application-x-executable") + "?rev=" + (backend ? backend.iconRevision : 0)
-                fillMode: Image.PreserveAspectFit
-                smooth: true
+                iconName: root.icon || "application-x-executable"
+                revision: backend ? backend.iconRevision : 0
+                loading: {
+                    root.iconPendingRevision
+                    return backend ? backend.isIconPending(root.icon || "application-x-executable") : false
+                }
+                placeholderColor: Qt.lighter(theme.surfaceRaised, 1.1)
+                accentColor: theme.accentPrimary
+                spinnerColor: theme.textPrimary
             }
         }
 

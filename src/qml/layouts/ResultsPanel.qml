@@ -49,12 +49,6 @@ AppSurface {
             onTextChanged: if (root.backend) root.backend.setQuery(text)
         }
 
-        BusyIndicator {
-            running: root.backend ? root.backend.scanning : false
-            visible: running
-            Layout.alignment: Qt.AlignHCenter
-        }
-
         ListView {
             id: resultsView
             objectName: "resultsView"

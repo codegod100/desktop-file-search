@@ -9,6 +9,7 @@ Item {
     required property var theme
     required property var backend
     required property var iconPicker
+    readonly property int iconPendingRevision: backend ? backend.iconPendingRevision : 0
 
     ColumnLayout {
         anchors.fill: parent
@@ -32,12 +33,19 @@ Item {
                 hoverOutlineColor: "transparent"
                 onClicked: if (root.iconPicker) root.iconPicker.openForSelection()
 
-                Image {
+                AsyncIcon {
                     anchors.centerIn: parent
                     width: 46
                     height: 46
-                    source: "image://desktopicons/" + encodeURIComponent(root.backend ? (root.backend.selectedEntry.icon || "application-x-executable") : "application-x-executable") + "?rev=" + (root.backend ? root.backend.iconRevision : 0)
-                    fillMode: Image.PreserveAspectFit
+                    iconName: root.backend ? (root.backend.selectedEntry.icon || "application-x-executable") : "application-x-executable"
+                    revision: root.backend ? root.backend.iconRevision : 0
+                    loading: {
+                        root.iconPendingRevision
+                        return root.backend ? root.backend.isIconPending(root.backend.selectedEntry.icon || "application-x-executable") : false
+                    }
+                    placeholderColor: Qt.lighter(root.theme.surfaceRaised, 1.08)
+                    accentColor: root.theme.accentPrimary
+                    spinnerColor: root.theme.textPrimary
                 }
 
                 Rectangle {

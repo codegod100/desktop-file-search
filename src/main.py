@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import threading
+from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import Property, QAbstractListModel, QByteArray, QEvent, QModelIndex, QObject, Qt, QTimer, QUrl, Signal, Slot, QSize
@@ -350,6 +351,39 @@ def collect_requested_icon_map(icon_names: set[str]) -> dict[str, str]:
             if current_score is None or score > current_score:
                 merged_scores[stem] = score
                 merged_map[stem] = path
+
+    return merged_map
+
+
+def stream_requested_icon_map(
+    icon_names: set[str],
+    on_chunk: Callable[[dict[str, str]], None],
+    *,
+    chunk_size: int = 8,
+) -> dict[str, str]:
+    requested_names = {name for name in icon_names if name and not name.startswith("/")}
+    if not requested_names:
+        return {}
+
+    merged_map: dict[str, str] = {}
+    merged_scores: dict[str, tuple[int, int, int, int, int]] = {}
+    chunk: dict[str, str] = {}
+
+    for root in _icon_search_paths():
+        icon_entries = _scan_requested_icon_root(root, requested_names)
+        for stem, (score, path) in icon_entries.items():
+            current_score = merged_scores.get(stem)
+            if current_score is not None and score <= current_score:
+                continue
+            merged_scores[stem] = score
+            merged_map[stem] = path
+            chunk[stem] = path
+            if len(chunk) >= chunk_size:
+                on_chunk(dict(chunk))
+                chunk.clear()
+
+    if chunk:
+        on_chunk(dict(chunk))
 
     return merged_map
 
@@ -847,7 +881,7 @@ class AppController(QObject):
     scanFinished = Signal(list)
     iconCacheLoaded = Signal(dict)
     iconScanFinished = Signal(dict, list)
-    entryIconScanFinished = Signal(dict)
+    entryIconScanFinished = Signal(dict, list)
     detailFinished = Signal(int, dict)
     entryModelChanged = Signal()
     iconNameModelChanged = Signal()
@@ -858,6 +892,7 @@ class AppController(QObject):
     wheelDebugChanged = Signal()
     iconSearchChanged = Signal()
     iconRevisionChanged = Signal()
+    iconPendingChanged = Signal()
 
     def __init__(self) -> None:
         super().__init__()
@@ -879,6 +914,8 @@ class AppController(QObject):
         self._icon_cache_loaded = False
         self._icon_index_started = False
         self._icon_index_ready = False
+        self._pending_icon_names: set[str] = set()
+        self._icon_pending_revision = 0
         global _icon_path_map_cache
         _icon_path_map_cache = dict(self._icon_path_map)
 
@@ -919,6 +956,10 @@ class AppController(QObject):
     @Property(int, notify=iconRevisionChanged)
     def iconRevision(self) -> int:
         return self._icon_revision
+
+    @Property(int, notify=iconPendingChanged)
+    def iconPendingRevision(self) -> int:
+        return self._icon_pending_revision
 
     @Slot()
     def startScan(self) -> None:
@@ -1011,6 +1052,17 @@ class AppController(QObject):
             return PLACEHOLDER_ICON
         return self._icon_path_map.get(icon_name, icon_name)
 
+    @Slot(str, result=bool)
+    def isIconPending(self, icon_name: str) -> bool:
+        icon_name = icon_name.strip()
+        if not icon_name or icon_name.startswith("/"):
+            return False
+        if icon_name in self._icon_path_map:
+            return False
+        if icon_name.endswith("-symbolic") and icon_name.removesuffix("-symbolic") in self._icon_path_map:
+            return False
+        return icon_name in self._pending_icon_names
+
     @Slot()
     def chooseIconFile(self) -> None:
         path = str(self._selected_entry.get("path", ""))
@@ -1090,9 +1142,17 @@ class AppController(QObject):
             pass
 
     def _entry_icon_scan_worker(self, icon_names: set[str]) -> None:
-        icon_map = collect_requested_icon_map(icon_names)
+        def emit_chunk(icon_map: dict[str, str]) -> None:
+            try:
+                self.entryIconScanFinished.emit(icon_map, sorted(icon_map))
+            except RuntimeError:
+                pass
+
+        icon_map = stream_requested_icon_map(icon_names, emit_chunk)
         try:
-            self.entryIconScanFinished.emit(icon_map)
+            unresolved_names = sorted(set(icon_names) - set(icon_map))
+            if unresolved_names:
+                self.entryIconScanFinished.emit({}, unresolved_names)
         except RuntimeError:
             pass
 
@@ -1130,12 +1190,14 @@ class AppController(QObject):
         }
         remaining_icon_names = all_icon_names - visible_icon_names
         if visible_icon_names:
+            self._set_pending_icons(visible_icon_names, add=True)
             threading.Thread(
                 target=self._entry_icon_scan_worker,
                 args=(visible_icon_names,),
                 daemon=True,
             ).start()
         if remaining_icon_names:
+            self._set_pending_icons(remaining_icon_names, add=True)
             threading.Thread(
                 target=self._entry_icon_scan_worker,
                 args=(remaining_icon_names,),
@@ -1177,19 +1239,47 @@ class AppController(QObject):
         self.entryModelChanged.emit()
         self.selectedEntryChanged.emit()
 
-    @Slot(dict)
-    def _apply_entry_icon_results(self, icon_map: dict[str, str]) -> None:
+    @Slot(dict, list)
+    def _apply_entry_icon_results(self, icon_map: dict[str, str], requested_names: list[str]) -> None:
         global _icon_path_map_cache
         with _icon_path_map_lock:
             merged_map = dict(self._icon_path_map)
             merged_map.update(icon_map)
             self._icon_path_map = merged_map
             _icon_path_map_cache = merged_map
+        self._set_pending_icons(set(requested_names), add=False)
         _persist_icon_map(merged_map)
         self._icon_revision += 1
         self.iconRevisionChanged.emit()
         self.entryModelChanged.emit()
         self.selectedEntryChanged.emit()
+
+    def _set_pending_icons(self, icon_names: set[str], *, add: bool) -> None:
+        normalized = {
+            name.strip()
+            for name in icon_names
+            if name and not name.startswith("/")
+        }
+        if not normalized:
+            return
+
+        if add:
+            next_pending = set(self._pending_icon_names)
+            next_pending.update(
+                name
+                for name in normalized
+                if name not in self._icon_path_map
+                and (not name.endswith("-symbolic") or name.removesuffix("-symbolic") not in self._icon_path_map)
+            )
+        else:
+            next_pending = self._pending_icon_names - normalized
+
+        if next_pending == self._pending_icon_names:
+            return
+
+        self._pending_icon_names = next_pending
+        self._icon_pending_revision += 1
+        self.iconPendingChanged.emit()
 
     def _update_icon_picker_items(self, query: str) -> None:
         lowered = query.strip().lower()

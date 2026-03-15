@@ -71,12 +71,15 @@ Popup {
                 backgroundColor: Qt.lighter(root.theme.surfaceRaised, 1.04)
                 outlineColor: root.theme.borderStrong
 
-                Image {
+                AsyncIcon {
                     anchors.centerIn: parent
                     width: 32
                     height: 32
-                    source: "image://desktopicons/" + encodeURIComponent(root.backend ? (root.backend.selectedEntry.icon || "application-x-executable") : "application-x-executable") + "?rev=" + (root.backend ? root.backend.iconRevision : 0)
-                    fillMode: Image.PreserveAspectFit
+                    iconName: root.backend ? (root.backend.selectedEntry.icon || "application-x-executable") : "application-x-executable"
+                    revision: root.backend ? root.backend.iconRevision : 0
+                    placeholderColor: Qt.lighter(root.theme.surfaceRaised, 1.08)
+                    accentColor: root.theme.accentPrimary
+                    spinnerColor: root.theme.textPrimary
                 }
             }
 
@@ -143,14 +146,15 @@ Popup {
                             backgroundColor: Qt.lighter(theme.surfaceRaised, 1.04)
                             outlineColor: theme.borderStrong
 
-                            Image {
+                            AsyncIcon {
                                 anchors.centerIn: parent
                                 width: 24
                                 height: 24
-                                source: "image://desktopicons/" + encodeURIComponent(preview || "application-x-executable") + "?rev=" + (root.backend ? root.backend.iconRevision : 0)
-                                fillMode: Image.PreserveAspectFit
-                                asynchronous: true
-                                cache: true
+                                iconName: preview || "application-x-executable"
+                                revision: root.backend ? root.backend.iconRevision : 0
+                                placeholderColor: Qt.lighter(theme.surfaceRaised, 1.08)
+                                accentColor: theme.accentPrimary
+                                spinnerColor: theme.textPrimary
                             }
                         }
 
