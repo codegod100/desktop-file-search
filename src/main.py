@@ -8,7 +8,6 @@ import shutil
 import subprocess
 import sys
 import threading
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from PySide6.QtCore import Property, QAbstractListModel, QByteArray, QEvent, QModelIndex, QObject, Qt, QUrl, Signal, Slot, QSize
@@ -323,15 +322,14 @@ def _scan_icon_roots(roots: list[Path]) -> tuple[dict[str, str], list[set[str]]]
     merged_scores: dict[str, tuple[int, int, int, int, int]] = {}
     name_sets: list[set[str]] = []
 
-    max_workers = min(8, max(1, len(roots)))
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        for icon_entries, names in executor.map(_scan_icon_root, roots):
-            name_sets.append(names)
-            for stem, (score, path) in icon_entries.items():
-                current_score = merged_scores.get(stem)
-                if current_score is None or score > current_score:
-                    merged_scores[stem] = score
-                    merged_map[stem] = path
+    for root in roots:
+        icon_entries, names = _scan_icon_root(root)
+        name_sets.append(names)
+        for stem, (score, path) in icon_entries.items():
+            current_score = merged_scores.get(stem)
+            if current_score is None or score > current_score:
+                merged_scores[stem] = score
+                merged_map[stem] = path
 
     return merged_map, name_sets
 
@@ -344,15 +342,14 @@ def collect_requested_icon_map(icon_names: set[str]) -> dict[str, str]:
     merged_map: dict[str, str] = {}
     merged_scores: dict[str, tuple[int, int, int, int, int]] = {}
     roots = _icon_search_paths()
-    max_workers = min(8, max(1, len(roots)))
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        for icon_entries in executor.map(lambda root: _scan_requested_icon_root(root, requested_names), roots):
-            for stem, (score, path) in icon_entries.items():
-                current_score = merged_scores.get(stem)
-                if current_score is None or score > current_score:
-                    merged_scores[stem] = score
-                    merged_map[stem] = path
+    for root in roots:
+        icon_entries = _scan_requested_icon_root(root, requested_names)
+        for stem, (score, path) in icon_entries.items():
+            current_score = merged_scores.get(stem)
+            if current_score is None or score > current_score:
+                merged_scores[stem] = score
+                merged_map[stem] = path
 
     return merged_map
 
@@ -875,9 +872,10 @@ class AppController(QObject):
         self._wheel_debug = "Wheel debug idle"
         self._all_icon_names: list[str] = []
         self._icon_path_map: dict[str, str] = _load_persisted_icon_map()
+        self._icon_query = ""
         self._icon_revision = 0
         self._icon_index_started = False
-        self._icon_index_ready = False
+        self._icon_index_ready = bool(self._icon_path_map)
         global _icon_path_map_cache
         _icon_path_map_cache = dict(self._icon_path_map)
 
@@ -885,6 +883,13 @@ class AppController(QObject):
         self.iconScanFinished.connect(self._apply_icon_scan_results)
         self.entryIconScanFinished.connect(self._apply_entry_icon_results)
         self.detailFinished.connect(self._apply_detail_results)
+
+        if self._icon_path_map:
+            self._all_icon_names = sorted(self._icon_path_map.keys(), key=str.lower)
+            self._icon_items = [
+                {"name": name, "preview": self._icon_path_map.get(name, name)}
+                for name in self._all_icon_names[:200]
+            ]
 
     @Property("QVariantList", notify=entryModelChanged)
     def entryModel(self) -> list[dict[str, object]]:
@@ -989,17 +994,8 @@ class AppController(QObject):
     @Slot(str)
     def setIconSearchQuery(self, query: str) -> None:
         self.startIconIndex()
-        lowered = query.strip().lower()
-        if not self._icon_index_ready:
-            names = []
-        elif not lowered:
-            names = self._all_icon_names[:200]
-        else:
-            names = [name for name in self._all_icon_names if lowered in name.lower()][:200]
-        self._icon_items = [
-            {"name": name, "preview": self._icon_path_map.get(name, name)}
-            for name in names
-        ]
+        self._icon_query = query
+        self._update_icon_picker_items(self._icon_query)
         self.iconNameModelChanged.emit()
         self.iconSearchChanged.emit()
 
@@ -1135,11 +1131,8 @@ class AppController(QObject):
         _icon_path_map_cache = merged_map
         self._icon_path_map = merged_map
         self._all_icon_names = names
-        self._icon_items = [
-            {"name": name, "preview": merged_map.get(name, name)}
-            for name in names[:200]
-        ]
         self._icon_index_ready = True
+        self._update_icon_picker_items(self._icon_query)
         _persist_icon_map(merged_map)
         self._icon_revision += 1
         self.iconNameModelChanged.emit()
@@ -1161,6 +1154,19 @@ class AppController(QObject):
         self.iconRevisionChanged.emit()
         self.entryModelChanged.emit()
         self.selectedEntryChanged.emit()
+
+    def _update_icon_picker_items(self, query: str) -> None:
+        lowered = query.strip().lower()
+        if not self._icon_index_ready:
+            names = []
+        elif not lowered:
+            names = self._all_icon_names[:200]
+        else:
+            names = [name for name in self._all_icon_names if lowered in name.lower()][:200]
+        self._icon_items = [
+            {"name": name, "preview": self._icon_path_map.get(name, name)}
+            for name in names
+        ]
 
     @Slot(int, dict)
     def _apply_detail_results(self, request_id: int, detailed: dict[str, object]) -> None:
