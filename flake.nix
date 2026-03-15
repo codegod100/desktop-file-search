@@ -53,6 +53,7 @@
           python.pkgs.pyside6
           qt6.qtbase
           qt6.qtdeclarative
+          qt6.qtsvg
         ];
 
         installPhase = ''
@@ -65,7 +66,10 @@
             --prefix PYTHONPATH : ${python.pkgs.pyside6}/${python.sitePackages} \
             --prefix PYTHONPATH : ${python.pkgs.shiboken6}/${python.sitePackages} \
             --prefix QML2_IMPORT_PATH : ${pkgs.qt6.qtdeclarative}/lib/qt-6/qml \
-            --prefix QT_PLUGIN_PATH : ${pkgs.qt6.qtbase}/lib/qt-6/plugins
+            --prefix QT_PLUGIN_PATH : ${pkgs.qt6.qtbase}/lib/qt-6/plugins \
+            --prefix QT_PLUGIN_PATH : ${pkgs.qt6.qtsvg}/lib/qt-6/plugins \
+            --set QSG_RHI_BACKEND software \
+            --set QT_QUICK_BACKEND software
 
           mkdir -p $out/share/applications
           cp $src/desktop-file-search.desktop $out/share/applications/

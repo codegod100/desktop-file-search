@@ -54,7 +54,7 @@ Rectangle {
                 anchors.centerIn: parent
                 width: 32
                 height: 32
-                source: "image://desktopicons/" + encodeURIComponent(root.icon || "application-x-executable")
+                source: "image://desktopicons/" + encodeURIComponent(root.icon || "application-x-executable") + "?rev=" + (backend ? backend.iconRevision : 0)
                 fillMode: Image.PreserveAspectFit
                 smooth: true
             }

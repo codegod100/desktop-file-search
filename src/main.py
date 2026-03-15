@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
 import sys
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from PySide6.QtCore import Property, QAbstractListModel, QByteArray, QEvent, QModelIndex, QObject, Qt, QUrl, Signal, Slot, QSize
@@ -13,6 +16,7 @@ from PySide6.QtGui import QColor, QDesktopServices, QGuiApplication, QIcon, QIma
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuick import QQuickImageProvider
 from PySide6.QtQuickControls2 import QQuickStyle
+from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QApplication, QFileDialog
 
 
@@ -24,6 +28,89 @@ STANDARD_PATHS = (
 
 HOME_APPLICATIONS = Path.home() / ".local/share/applications"
 PLACEHOLDER_ICON = "application-x-executable"
+APP_CACHE_DIR = Path.home() / ".cache" / "desktop-file-search"
+ICON_CACHE_FILE = APP_CACHE_DIR / "icon-map.json"
+_icon_path_map_cache: dict[str, str] | None = None
+_icon_path_map_lock = threading.Lock()
+
+
+def _load_persisted_icon_map() -> dict[str, str]:
+    try:
+        payload = json.loads(ICON_CACHE_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return {}
+
+    if not isinstance(payload, dict):
+        return {}
+
+    icon_map = payload.get("icons", payload)
+    if not isinstance(icon_map, dict):
+        return {}
+
+    loaded: dict[str, str] = {}
+    for name, path in icon_map.items():
+        if not isinstance(name, str) or not isinstance(path, str):
+            continue
+        if not path.startswith("/") or Path(path).is_file():
+            loaded[name] = path
+    return loaded
+
+
+def _persist_icon_map(icon_map: dict[str, str]) -> None:
+    APP_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    payload = {"icons": icon_map}
+    tmp_path = ICON_CACHE_FILE.with_suffix(".tmp")
+    try:
+        tmp_path.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
+        tmp_path.replace(ICON_CACHE_FILE)
+    except OSError:
+        return
+
+
+def _data_share_paths() -> list[Path]:
+    roots: list[Path] = []
+    seen: set[Path] = set()
+
+    candidates = [
+        Path.home() / ".local/share",
+        Path.home() / ".nix-profile/share",
+        Path("/etc/profiles/per-user") / os.environ.get("USER", "") / "share",
+        Path("/nix/var/nix/profiles/default/share"),
+        Path("/run/current-system/sw/share"),
+        Path("/usr/local/share"),
+        Path("/usr/share"),
+    ]
+
+    for value in os.environ.get("XDG_DATA_DIRS", "").split(":"):
+        if value:
+            candidates.append(Path(value))
+
+    for candidate in candidates:
+        try:
+            resolved = candidate.expanduser().resolve(strict=False)
+        except RuntimeError:
+            continue
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        roots.append(resolved)
+
+    return roots
+
+
+def _icon_search_paths() -> list[Path]:
+    paths: list[Path] = []
+    seen: set[Path] = set()
+
+    for root in _data_share_paths():
+        for candidate in (root / "icons", root / "pixmaps"):
+            resolved = candidate.resolve(strict=False)
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            paths.append(resolved)
+
+    return paths
 
 
 def _run_command(*argv: str) -> subprocess.CompletedProcess[str] | None:
@@ -97,6 +184,281 @@ def parse_desktop_file(path: Path) -> dict[str, object] | None:
     if not fields["name"]:
         return None
     return fields
+
+
+def collect_icon_names() -> list[str]:
+    names: set[str] = set()
+    for root_names in _scan_icon_roots(_icon_search_paths())[1]:
+        names.update(root_names)
+
+    names.add(PLACEHOLDER_ICON)
+    return sorted(names, key=str.lower)
+
+
+def _icon_candidate_score(candidate: Path) -> tuple[int, int, int, int, int]:
+    path_text = str(candidate).lower()
+    parts = [part.lower() for part in candidate.parts]
+    stem = candidate.stem.lower()
+
+    if stem.endswith("-symbolic"):
+        symbolic_rank = 0
+    elif "symbolic" in parts:
+        symbolic_rank = 1
+    else:
+        symbolic_rank = 2
+
+    category_rank = 0
+    if "apps" in parts:
+        category_rank = 4
+    elif "scalable" in parts:
+        category_rank = 3
+    elif "panel" in parts:
+        category_rank = 2
+    elif "status" in parts:
+        category_rank = 1
+
+    theme_rank = 0
+    if "hicolor" in parts:
+        theme_rank = 3
+    elif "papirus" in parts or "papirus-light" in parts:
+        theme_rank = 2
+    elif "adwaita" in parts:
+        theme_rank = 1
+
+    size_rank = 0
+    for part in parts:
+        if part == "scalable":
+            size_rank = max(size_rank, 4096)
+            continue
+        match = re.fullmatch(r"(\d+)(?:x(\d+))?", part)
+        if not match:
+            continue
+        width = int(match.group(1))
+        height = int(match.group(2) or match.group(1))
+        size_rank = max(size_rank, min(width, height))
+
+    extension_rank = {
+        ".svg": 3,
+        ".png": 2,
+        ".webp": 1,
+        ".xpm": 0,
+        ".jpg": 0,
+        ".jpeg": 0,
+    }.get(candidate.suffix.lower(), 0)
+
+    if "legacy" in path_text:
+        category_rank -= 1
+        theme_rank -= 1
+
+    return (symbolic_rank, category_rank, theme_rank, size_rank, extension_rank)
+
+
+def _scan_icon_root(root: Path) -> tuple[dict[str, tuple[tuple[int, int, int, int, int], str]], set[str]]:
+    valid_suffixes = {".png", ".svg", ".xpm", ".jpg", ".jpeg", ".webp"}
+    icon_entries: dict[str, tuple[tuple[int, int, int, int, int], str]] = {}
+    names: set[str] = set()
+
+    if not root.exists():
+        return icon_entries, names
+
+    try:
+        walker = os.walk(root, followlinks=False)
+    except OSError:
+        return icon_entries, names
+
+    for dirpath, dirnames, filenames in walker:
+        dirnames[:] = [name for name in dirnames if name not in {"cursors"}]
+        for filename in filenames:
+            suffix = Path(filename).suffix.lower()
+            if suffix not in valid_suffixes:
+                continue
+            stem = Path(filename).stem
+            if not stem:
+                continue
+            candidate = Path(dirpath) / filename
+            names.add(stem)
+            score = _icon_candidate_score(candidate)
+            current = icon_entries.get(stem)
+            if current is None or score > current[0]:
+                icon_entries[stem] = (score, str(candidate))
+
+    return icon_entries, names
+
+
+def _scan_requested_icon_root(
+    root: Path,
+    requested_names: set[str],
+) -> dict[str, tuple[tuple[int, int, int, int, int], str]]:
+    valid_suffixes = {".png", ".svg", ".xpm", ".jpg", ".jpeg", ".webp"}
+    icon_entries: dict[str, tuple[tuple[int, int, int, int, int], str]] = {}
+
+    if not root.exists() or not requested_names:
+        return icon_entries
+
+    try:
+        walker = os.walk(root, followlinks=False)
+    except OSError:
+        return icon_entries
+
+    for dirpath, dirnames, filenames in walker:
+        dirnames[:] = [name for name in dirnames if name not in {"cursors"}]
+        for filename in filenames:
+            suffix = Path(filename).suffix.lower()
+            if suffix not in valid_suffixes:
+                continue
+            stem = Path(filename).stem
+            if stem not in requested_names:
+                continue
+            candidate = Path(dirpath) / filename
+            score = _icon_candidate_score(candidate)
+            current = icon_entries.get(stem)
+            if current is None or score > current[0]:
+                icon_entries[stem] = (score, str(candidate))
+
+    return icon_entries
+
+
+def _scan_icon_roots(roots: list[Path]) -> tuple[dict[str, str], list[set[str]]]:
+    merged_map: dict[str, str] = {}
+    merged_scores: dict[str, tuple[int, int, int, int, int]] = {}
+    name_sets: list[set[str]] = []
+
+    max_workers = min(8, max(1, len(roots)))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        for icon_entries, names in executor.map(_scan_icon_root, roots):
+            name_sets.append(names)
+            for stem, (score, path) in icon_entries.items():
+                current_score = merged_scores.get(stem)
+                if current_score is None or score > current_score:
+                    merged_scores[stem] = score
+                    merged_map[stem] = path
+
+    return merged_map, name_sets
+
+
+def collect_requested_icon_map(icon_names: set[str]) -> dict[str, str]:
+    requested_names = {name for name in icon_names if name and not name.startswith("/")}
+    if not requested_names:
+        return {}
+
+    merged_map: dict[str, str] = {}
+    merged_scores: dict[str, tuple[int, int, int, int, int]] = {}
+    roots = _icon_search_paths()
+    max_workers = min(8, max(1, len(roots)))
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        for icon_entries in executor.map(lambda root: _scan_requested_icon_root(root, requested_names), roots):
+            for stem, (score, path) in icon_entries.items():
+                current_score = merged_scores.get(stem)
+                if current_score is None or score > current_score:
+                    merged_scores[stem] = score
+                    merged_map[stem] = path
+
+    return merged_map
+
+
+def collect_icon_map() -> dict[str, str]:
+    icon_map, _ = _scan_icon_roots(_icon_search_paths())
+    icon_map.setdefault(PLACEHOLDER_ICON, PLACEHOLDER_ICON)
+    return icon_map
+
+
+def resolve_icon_path(icon_name: str) -> str | None:
+    global _icon_path_map_cache
+    if not icon_name or icon_name.startswith("/"):
+        return icon_name or None
+    cache = _icon_path_map_cache or {}
+    resolved = cache.get(icon_name)
+    if resolved:
+        return resolved
+    if icon_name.endswith("-symbolic"):
+        fallback = cache.get(icon_name.removesuffix("-symbolic"))
+        if fallback:
+            return fallback
+    return None
+
+
+def _load_icon_image(path: str, target: QSize) -> QImage:
+    source = Path(path)
+    if not source.is_file():
+        return QImage()
+
+    if source.suffix.lower() == ".svg":
+        renderer = QSvgRenderer(str(source))
+        if not renderer.isValid():
+            return QImage()
+
+        canvas = QImage(target, QImage.Format_ARGB32_Premultiplied)
+        canvas.fill(QColor("#00000000"))
+        painter = QPainter(canvas)
+        renderer.render(painter)
+        painter.end()
+        return canvas
+
+    direct = QImage(str(source))
+    if direct.isNull():
+        return QImage()
+    return direct.scaled(target, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+
+
+def update_desktop_icon(path: Path, icon_value: str) -> Path | None:
+    icon_value = icon_value.strip()
+    if not icon_value:
+        return None
+
+    target_path = path
+    if not os.access(path, os.W_OK):
+        HOME_APPLICATIONS.mkdir(parents=True, exist_ok=True)
+        target_path = HOME_APPLICATIONS / path.name
+        try:
+            shutil.copy2(path, target_path)
+        except OSError:
+            return None
+
+    try:
+        content = target_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+
+    lines = content.splitlines()
+    output: list[str] = []
+    in_desktop_entry = False
+    icon_written = False
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped == "[Desktop Entry]":
+            in_desktop_entry = True
+            output.append(line)
+            continue
+
+        if stripped.startswith("[") and stripped != "[Desktop Entry]":
+            if in_desktop_entry and not icon_written:
+                output.append(f"Icon={icon_value}")
+                icon_written = True
+            in_desktop_entry = False
+            output.append(line)
+            continue
+
+        if in_desktop_entry and re.match(r"^Icon\s*=", stripped):
+            if not icon_written:
+                output.append(f"Icon={icon_value}")
+                icon_written = True
+            continue
+
+        output.append(line)
+
+    if in_desktop_entry and not icon_written:
+        output.append(f"Icon={icon_value}")
+    elif not icon_written:
+        output.extend(["", "[Desktop Entry]", f"Icon={icon_value}"])
+
+    new_content = "\n".join(output) + "\n"
+    try:
+        target_path.write_text(new_content, encoding="utf-8")
+    except OSError:
+        return None
+    return target_path
 
 
 def scan_desktop_entries() -> list[dict[str, object]]:
@@ -287,25 +649,86 @@ class DesktopEntryModel(QAbstractListModel):
         return [entry for entry in entries if query in str(entry["name"]).lower()]
 
 
+class IconNameModel(QAbstractListModel):
+    NameRole = Qt.UserRole + 1
+    PreviewRole = Qt.UserRole + 2
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._items: list[dict[str, str]] = []
+
+    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
+        if parent.isValid():
+            return 0
+        return len(self._items)
+
+    def data(self, index: QModelIndex, role: int = Qt.DisplayRole) -> object:
+        if not index.isValid():
+            return None
+        row = index.row()
+        if row < 0 or row >= len(self._items):
+            return None
+        item = self._items[row]
+        if role == self.NameRole:
+            return item["name"]
+        if role == self.PreviewRole:
+            return item["preview"]
+        return None
+
+    def roleNames(self) -> dict[int, QByteArray]:
+        return {
+            self.NameRole: QByteArray(b"name"),
+            self.PreviewRole: QByteArray(b"preview"),
+        }
+
+    def set_items(self, items: list[dict[str, str]]) -> None:
+        self.beginResetModel()
+        self._items = items
+        self.endResetModel()
+
+
 class DesktopIconProvider(QQuickImageProvider):
     def __init__(self) -> None:
         super().__init__(QQuickImageProvider.Image)
 
     def requestImage(self, identifier: str, size: QSize, requested_size: QSize) -> QImage:
-        name = QUrl.fromPercentEncoding(identifier.encode("utf-8")) or PLACEHOLDER_ICON
+        raw_name = QUrl.fromPercentEncoding(identifier.encode("utf-8")) or PLACEHOLDER_ICON
+        name = raw_name.split("?", 1)[0] or PLACEHOLDER_ICON
         target = requested_size if requested_size.isValid() else QSize(48, 48)
         image = QImage()
 
-        if name.startswith("/"):
-            direct = QImage(name)
-            if not direct.isNull():
-                image = direct.scaled(target, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        resolved_name = resolve_icon_path(name) or name
+
+        if resolved_name.startswith("/"):
+            image = _load_icon_image(resolved_name, target)
 
         if image.isNull():
             icon = QIcon.fromTheme(name)
+            if icon.isNull() and name.endswith("-symbolic"):
+                icon = QIcon.fromTheme(name.removesuffix("-symbolic"))
+            if icon.isNull() and resolved_name != name:
+                icon = QIcon(resolved_name)
             if icon.isNull():
                 icon = QIcon.fromTheme(PLACEHOLDER_ICON)
+            if icon.isNull():
+                fallback_path = resolve_icon_path(PLACEHOLDER_ICON)
+                if fallback_path:
+                    icon = QIcon(fallback_path)
             image = icon.pixmap(target).toImage()
+
+        if image.isNull() and resolved_name.startswith("/"):
+            image = _load_icon_image(resolved_name, target)
+
+        if not image.isNull() and name.endswith("-symbolic"):
+            tinted = QImage(image.size(), QImage.Format_ARGB32_Premultiplied)
+            tinted.fill(QColor("#00000000"))
+            painter = QPainter(tinted)
+            painter.setRenderHint(QPainter.Antialiasing, True)
+            painter.drawImage(0, 0, image)
+            painter.setCompositionMode(QPainter.CompositionMode_SourceIn)
+            painter.fillRect(tinted.rect(), QColor("#ffffff"))
+            painter.end()
+            image = tinted
 
         if image.isNull():
             image = QImage(target, QImage.Format_ARGB32_Premultiplied)
@@ -341,7 +764,7 @@ class WheelDebugFilter(QObject):
     def _named_ancestor(obj: QObject | None) -> QObject | None:
         current = obj
         while current is not None:
-            if current.objectName() in {"resultsView", "detailsScroll"}:
+            if current.objectName() in {"resultsView", "detailsScroll", "iconGrid"}:
                 return current
             current = current.parent()
         return None
@@ -396,6 +819,23 @@ class WheelDebugFilter(QObject):
                             )
                             return True
 
+                    if target_name == "iconGrid":
+                        current_y = float(target.property("contentY") or 0.0)
+                        content_height = float(target.property("contentHeight") or 0.0)
+                        viewport_height = float(target.property("height") or 0.0)
+                        max_y = max(0.0, content_height - viewport_height)
+                        next_y = max(0.0, min(max_y, current_y - scaled))
+                        target.setProperty("contentY", next_y)
+                        self._controller.recordWheelDebug(
+                            "iconGrid",
+                            float(pixel.y()),
+                            float(angle.y()),
+                            scaled,
+                            next_y,
+                            max_y,
+                        )
+                        return True
+
                 if pixel.y() != 0 or angle.y() != 0:
                     watched_name = watched.objectName() or watched.metaObject().className()
                     self._controller.recordWheelEventDebug(
@@ -408,29 +848,51 @@ class WheelDebugFilter(QObject):
 
 class AppController(QObject):
     scanFinished = Signal(list)
+    iconScanFinished = Signal(dict, list)
+    entryIconScanFinished = Signal(dict)
     detailFinished = Signal(int, dict)
+    entryModelChanged = Signal()
+    iconNameModelChanged = Signal()
     scanningChanged = Signal()
     statusTextChanged = Signal()
     selectedEntryChanged = Signal()
     detailLoadingChanged = Signal()
     wheelDebugChanged = Signal()
+    iconSearchChanged = Signal()
+    iconRevisionChanged = Signal()
 
     def __init__(self) -> None:
         super().__init__()
-        self._model = DesktopEntryModel()
+        self._entries_all: list[dict[str, object]] = []
+        self._entries_filtered: list[dict[str, object]] = []
+        self._query = ""
+        self._icon_items: list[dict[str, str]] = [{"name": PLACEHOLDER_ICON, "preview": PLACEHOLDER_ICON}]
         self._scanning = False
         self._status_text = "Ready"
         self._selected_entry: dict[str, object] = {}
         self._detail_loading = False
         self._detail_request = 0
         self._wheel_debug = "Wheel debug idle"
+        self._all_icon_names: list[str] = []
+        self._icon_path_map: dict[str, str] = _load_persisted_icon_map()
+        self._icon_revision = 0
+        self._icon_index_started = False
+        self._icon_index_ready = False
+        global _icon_path_map_cache
+        _icon_path_map_cache = dict(self._icon_path_map)
 
         self.scanFinished.connect(self._apply_scan_results)
+        self.iconScanFinished.connect(self._apply_icon_scan_results)
+        self.entryIconScanFinished.connect(self._apply_entry_icon_results)
         self.detailFinished.connect(self._apply_detail_results)
 
-    @Property(QObject, constant=True)
-    def entryModel(self) -> QObject:
-        return self._model
+    @Property("QVariantList", notify=entryModelChanged)
+    def entryModel(self) -> list[dict[str, object]]:
+        return self._entries_filtered
+
+    @Property("QVariantList", notify=iconNameModelChanged)
+    def iconNameModel(self) -> list[dict[str, str]]:
+        return self._icon_items
 
     @Property(bool, notify=scanningChanged)
     def scanning(self) -> bool:
@@ -452,6 +914,10 @@ class AppController(QObject):
     def wheelDebug(self) -> str:
         return self._wheel_debug
 
+    @Property(int, notify=iconRevisionChanged)
+    def iconRevision(self) -> int:
+        return self._icon_revision
+
     @Slot()
     def startScan(self) -> None:
         if self._scanning:
@@ -463,14 +929,16 @@ class AppController(QObject):
 
     @Slot(str)
     def setQuery(self, query: str) -> None:
-        self._model.set_query(query)
+        self._query = query.strip().lower()
+        self._entries_filtered = self._apply_query(self._entries_all, self._query)
+        self.entryModelChanged.emit()
         self._refresh_count_status()
 
     @Slot(int)
     def selectEntry(self, row: int) -> None:
-        entry = self._model.entry_at(row)
-        if entry is None:
+        if row < 0 or row >= len(self._entries_filtered):
             return
+        entry = dict(self._entries_filtered[row])
 
         entry.setdefault("packageName", "")
         entry.setdefault("packageVersion", "")
@@ -518,6 +986,58 @@ class AppController(QObject):
         if url:
             QDesktopServices.openUrl(QUrl(url))
 
+    @Slot(str)
+    def setIconSearchQuery(self, query: str) -> None:
+        self.startIconIndex()
+        lowered = query.strip().lower()
+        if not self._icon_index_ready:
+            names = []
+        elif not lowered:
+            names = self._all_icon_names[:200]
+        else:
+            names = [name for name in self._all_icon_names if lowered in name.lower()][:200]
+        self._icon_items = [
+            {"name": name, "preview": self._icon_path_map.get(name, name)}
+            for name in names
+        ]
+        self.iconNameModelChanged.emit()
+        self.iconSearchChanged.emit()
+
+    @Slot(str, result=str)
+    def iconPreviewSource(self, icon_name: str) -> str:
+        icon_name = icon_name.strip()
+        if not icon_name:
+            return PLACEHOLDER_ICON
+        return self._icon_path_map.get(icon_name, icon_name)
+
+    @Slot()
+    def chooseIconFile(self) -> None:
+        path = str(self._selected_entry.get("path", ""))
+        if not path:
+            return
+        chosen, _ = QFileDialog.getOpenFileName(
+            None,
+            "Choose Icon File",
+            str(Path.home()),
+            "Images (*.png *.svg *.xpm *.jpg *.jpeg *.webp)",
+        )
+        if chosen:
+            self._apply_icon_update(chosen)
+
+    @Slot(str)
+    def applyIconName(self, icon_name: str) -> None:
+        if icon_name.strip():
+            resolved = self._icon_path_map.get(icon_name.strip(), icon_name.strip())
+            self._apply_icon_update(resolved)
+
+    @Slot()
+    def startIconIndex(self) -> None:
+        if self._icon_index_started:
+            return
+        self._icon_index_started = True
+        icon_worker = threading.Thread(target=self._icon_scan_worker, daemon=True)
+        icon_worker.start()
+
     @Slot(str, float, float)
     def recordWheelEventDebug(
         self,
@@ -525,11 +1045,7 @@ class AppController(QObject):
         pixel_delta_y: float,
         angle_delta_y: float,
     ) -> None:
-        self._wheel_debug = (
-            f"raw {source}  pixel={pixel_delta_y:.1f}  angle={angle_delta_y:.1f}"
-        )
-        print(self._wheel_debug, file=sys.stderr, flush=True)
-        self.wheelDebugChanged.emit()
+        _ = (source, pixel_delta_y, angle_delta_y)
 
     @Slot(str, float, float, float, float, float)
     def recordWheelDebug(
@@ -541,16 +1057,29 @@ class AppController(QObject):
         content_y: float,
         max_y: float,
     ) -> None:
-        self._wheel_debug = (
-            f"{source}  pixel={pixel_delta_y:.1f}  angle={angle_delta_y:.1f}  "
-            f"scaled={scaled_delta:.1f}  y={content_y:.1f}/{max_y:.1f}"
-        )
-        print(self._wheel_debug, file=sys.stderr, flush=True)
-        self.wheelDebugChanged.emit()
+        _ = (source, pixel_delta_y, angle_delta_y, scaled_delta, content_y, max_y)
 
     def _scan_worker(self) -> None:
         entries = scan_desktop_entries()
-        self.scanFinished.emit(entries)
+        try:
+            self.scanFinished.emit(entries)
+        except RuntimeError:
+            pass
+
+    def _icon_scan_worker(self) -> None:
+        icon_map = collect_icon_map()
+        names = sorted(icon_map.keys(), key=str.lower)
+        try:
+            self.iconScanFinished.emit(icon_map, names)
+        except RuntimeError:
+            pass
+
+    def _entry_icon_scan_worker(self, icon_names: set[str]) -> None:
+        icon_map = collect_requested_icon_map(icon_names)
+        try:
+            self.entryIconScanFinished.emit(icon_map)
+        except RuntimeError:
+            pass
 
     def _detail_worker(self, request_id: int, entry: dict[str, object]) -> None:
         detailed = dict(entry)
@@ -569,9 +1098,69 @@ class AppController(QObject):
 
     @Slot(list)
     def _apply_scan_results(self, entries: list[dict[str, object]]) -> None:
-        self._model.set_entries(entries)
+        self._entries_all = entries
+        self._entries_filtered = self._apply_query(entries, self._query)
+        self.entryModelChanged.emit()
         self._set_scanning(False)
         self._refresh_count_status()
+        visible_icon_names = {
+            str(entry.get("icon", "")).strip()
+            for entry in self._entries_filtered[:64]
+            if str(entry.get("icon", "")).strip() and not str(entry.get("icon", "")).startswith("/")
+        }
+        all_icon_names = {
+            str(entry.get("icon", "")).strip()
+            for entry in self._entries_all
+            if str(entry.get("icon", "")).strip() and not str(entry.get("icon", "")).startswith("/")
+        }
+        remaining_icon_names = all_icon_names - visible_icon_names
+        if visible_icon_names:
+            threading.Thread(
+                target=self._entry_icon_scan_worker,
+                args=(visible_icon_names,),
+                daemon=True,
+            ).start()
+        if remaining_icon_names:
+            threading.Thread(
+                target=self._entry_icon_scan_worker,
+                args=(remaining_icon_names,),
+                daemon=True,
+            ).start()
+
+    @Slot(dict, list)
+    def _apply_icon_scan_results(self, icon_map: dict[str, str], names: list[str]) -> None:
+        global _icon_path_map_cache
+        merged_map = dict(self._icon_path_map)
+        merged_map.update(icon_map)
+        _icon_path_map_cache = merged_map
+        self._icon_path_map = merged_map
+        self._all_icon_names = names
+        self._icon_items = [
+            {"name": name, "preview": merged_map.get(name, name)}
+            for name in names[:200]
+        ]
+        self._icon_index_ready = True
+        _persist_icon_map(merged_map)
+        self._icon_revision += 1
+        self.iconNameModelChanged.emit()
+        self.iconSearchChanged.emit()
+        self.iconRevisionChanged.emit()
+        self.entryModelChanged.emit()
+        self.selectedEntryChanged.emit()
+
+    @Slot(dict)
+    def _apply_entry_icon_results(self, icon_map: dict[str, str]) -> None:
+        global _icon_path_map_cache
+        with _icon_path_map_lock:
+            merged_map = dict(self._icon_path_map)
+            merged_map.update(icon_map)
+            self._icon_path_map = merged_map
+            _icon_path_map_cache = merged_map
+        _persist_icon_map(merged_map)
+        self._icon_revision += 1
+        self.iconRevisionChanged.emit()
+        self.entryModelChanged.emit()
+        self.selectedEntryChanged.emit()
 
     @Slot(int, dict)
     def _apply_detail_results(self, request_id: int, detailed: dict[str, object]) -> None:
@@ -582,7 +1171,7 @@ class AppController(QObject):
         self._set_detail_loading(False)
 
     def _refresh_count_status(self) -> None:
-        count = self._model.count()
+        count = len(self._entries_filtered)
         label = "desktop file" if count == 1 else "desktop files"
         self._set_status_text(f"Found {count} {label}")
 
@@ -603,6 +1192,46 @@ class AppController(QObject):
             return
         self._detail_loading = value
         self.detailLoadingChanged.emit()
+
+    def _apply_icon_update(self, icon_value: str) -> None:
+        path_str = str(self._selected_entry.get("path", ""))
+        if not path_str:
+            return
+        updated_path = update_desktop_icon(Path(path_str), icon_value)
+        if updated_path is None:
+            return
+        updated_entry = parse_desktop_file(updated_path)
+        if updated_entry is None:
+            return
+
+        # Preserve any already-fetched package metadata on the refreshed selection.
+        for key in (
+            "packageName",
+            "packageVersion",
+            "packageDescription",
+            "packageUrl",
+            "packageLicense",
+            "packageDepends",
+        ):
+            if key in self._selected_entry:
+                updated_entry[key] = self._selected_entry[key]
+
+        self._selected_entry = updated_entry
+        refreshed_entries = [
+            entry for entry in self._entries_all if str(entry.get("path", "")) not in {path_str, str(updated_path)}
+        ]
+        refreshed_entries.append(updated_entry)
+        refreshed_entries.sort(key=lambda item: str(item["name"]).lower())
+        self._entries_all = refreshed_entries
+        self._entries_filtered = self._apply_query(refreshed_entries, self._query)
+        self.entryModelChanged.emit()
+        self.selectedEntryChanged.emit()
+
+    @staticmethod
+    def _apply_query(entries: list[dict[str, object]], query: str) -> list[dict[str, object]]:
+        if not query:
+            return list(entries)
+        return [entry for entry in entries if query in str(entry["name"]).lower()]
 
 
 def main() -> int:

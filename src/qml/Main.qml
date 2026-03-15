@@ -16,6 +16,10 @@ ApplicationWindow {
 
     readonly property var appBackend: backend
     readonly property bool hasSelection: !!(appBackend && appBackend.selectedEntry && appBackend.selectedEntry.path)
+
+    Component.onCompleted: Qt.callLater(function() {
+        searchField.forceActiveFocus()
+    })
     
     QtObject {
         id: palette
@@ -41,10 +45,10 @@ ApplicationWindow {
         readonly property color rightText: "#eff0f1"
         readonly property color rightMuted: "#bcc2cc"
         readonly property color rightSoft: "#8e98a4"
-        readonly property color buttonBg: "#444a58"
-        readonly property color buttonHover: "#4c5362"
-        readonly property color buttonPressed: "#3b414d"
-        readonly property color buttonBorder: "#5b6272"
+        readonly property color buttonBg: "#596071"
+        readonly property color buttonHover: "#646c7f"
+        readonly property color buttonPressed: "#4d5565"
+        readonly property color buttonBorder: "#2a2f38"
         readonly property color buttonText: "#eff0f1"
         readonly property color iconButtonBg: "#2f343f"
         readonly property color iconButtonHover: "#3b4250"
@@ -201,6 +205,7 @@ ApplicationWindow {
                         spacing: 16
 
                         Rectangle {
+                            id: headerIconBox
                             Layout.preferredWidth: 84
                             Layout.preferredHeight: 84
                             radius: 26
@@ -210,8 +215,42 @@ ApplicationWindow {
                                 anchors.centerIn: parent
                                 width: 46
                                 height: 46
-                                source: "image://desktopicons/" + encodeURIComponent(appBackend ? (appBackend.selectedEntry.icon || "") : "")
+                                source: "image://desktopicons/" + encodeURIComponent(appBackend ? (appBackend.selectedEntry.icon || "application-x-executable") : "application-x-executable") + "?rev=" + (appBackend ? appBackend.iconRevision : 0)
                                 fillMode: Image.PreserveAspectFit
+                            }
+
+                            Rectangle {
+                                anchors.right: parent.right
+                                anchors.bottom: parent.bottom
+                                anchors.rightMargin: 6
+                                anchors.bottomMargin: 6
+                                width: 22
+                                height: 22
+                                radius: 11
+                                color: "#223246"
+                                border.width: 1
+                                border.color: palette.rightCardBorder
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "+"
+                                    color: palette.rightText
+                                    font.pixelSize: 14
+                                    font.weight: Font.DemiBold
+                                }
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    if (appBackend) {
+                                        iconSearchField.text = ""
+                                        appBackend.startIconIndex()
+                                        appBackend.setIconSearchQuery("")
+                                        iconPicker.open()
+                                    }
+                                }
                             }
                         }
 
@@ -275,36 +314,39 @@ ApplicationWindow {
 
                                         background: Rectangle {
                                             radius: 6
-                                            color: copyButton.down ? palette.iconButtonPressed : copyButton.hovered ? palette.iconButtonHover : "transparent"
+                                            color: copyButton.down ? palette.iconButtonPressed : copyButton.hovered ? palette.iconButtonHover : "#31465d"
                                             border.width: 1
-                                            border.color: copyButton.hovered || copyButton.down ? palette.iconButtonBorder : palette.iconButtonIdleBorder
+                                            border.color: copyButton.hovered || copyButton.down ? palette.iconButtonBorder : "#65788c"
                                         }
 
                                         contentItem: Item {
-                                            implicitWidth: 14
-                                            implicitHeight: 14
+                                            implicitWidth: 18
+                                            implicitHeight: 18
 
                                             Rectangle {
-                                                x: 5
-                                                y: 1
-                                                width: 7
-                                                height: 8
-                                                radius: 1
+                                                width: 9
+                                                height: 11
+                                                radius: 2
+                                                anchors.horizontalCenter: parent.horizontalCenter
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                anchors.horizontalCenterOffset: -2
+                                                anchors.verticalCenterOffset: 1
                                                 color: "transparent"
                                                 border.width: 1
-                                                border.color: copyButton.hovered || copyButton.down ? "#c8d0da" : "#8c96a2"
-                                                opacity: 0.9
+                                                border.color: "#f3f6fb"
                                             }
 
                                             Rectangle {
-                                                x: 1
-                                                y: 5
-                                                width: 7
-                                                height: 8
-                                                radius: 1
+                                                width: 9
+                                                height: 11
+                                                radius: 2
+                                                anchors.horizontalCenter: parent.horizontalCenter
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                anchors.horizontalCenterOffset: 2
+                                                anchors.verticalCenterOffset: -2
                                                 color: "transparent"
                                                 border.width: 1
-                                                border.color: copyButton.hovered || copyButton.down ? "#eef0f1" : "#b4bec9"
+                                                border.color: "#f3f6fb"
                                             }
                                         }
                                     }
@@ -406,36 +448,39 @@ ApplicationWindow {
 
                                             background: Rectangle {
                                                 radius: 6
-                                                color: execCopyButton.down ? palette.iconButtonPressed : execCopyButton.hovered ? palette.iconButtonHover : "transparent"
+                                                color: execCopyButton.down ? palette.iconButtonPressed : execCopyButton.hovered ? palette.iconButtonHover : "#31465d"
                                                 border.width: 1
-                                                border.color: execCopyButton.hovered || execCopyButton.down ? palette.iconButtonBorder : palette.iconButtonIdleBorder
+                                                border.color: execCopyButton.hovered || execCopyButton.down ? palette.iconButtonBorder : "#65788c"
                                             }
 
                                             contentItem: Item {
-                                                implicitWidth: 14
-                                                implicitHeight: 14
+                                                implicitWidth: 18
+                                                implicitHeight: 18
 
                                                 Rectangle {
-                                                    x: 5
-                                                    y: 1
-                                                    width: 7
-                                                    height: 8
-                                                    radius: 1
+                                                    width: 9
+                                                    height: 11
+                                                    radius: 2
+                                                    anchors.horizontalCenter: parent.horizontalCenter
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    anchors.horizontalCenterOffset: -2
+                                                    anchors.verticalCenterOffset: 1
                                                     color: "transparent"
                                                     border.width: 1
-                                                    border.color: execCopyButton.hovered || execCopyButton.down ? "#c8d0da" : "#8c96a2"
-                                                    opacity: 0.9
+                                                    border.color: "#f3f6fb"
                                                 }
 
                                                 Rectangle {
-                                                    x: 1
-                                                    y: 5
-                                                    width: 7
-                                                    height: 8
-                                                    radius: 1
+                                                    width: 9
+                                                    height: 11
+                                                    radius: 2
+                                                    anchors.horizontalCenter: parent.horizontalCenter
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    anchors.horizontalCenterOffset: 2
+                                                    anchors.verticalCenterOffset: -2
                                                     color: "transparent"
                                                     border.width: 1
-                                                    border.color: execCopyButton.hovered || execCopyButton.down ? "#eef0f1" : "#b4bec9"
+                                                    border.color: "#f3f6fb"
                                                 }
                                             }
                                         }
@@ -537,6 +582,192 @@ ApplicationWindow {
                         font.pixelSize: 15
                     }
                 }
+
+                Popup {
+                    id: iconPicker
+                    parent: Overlay.overlay
+                    modal: true
+                    focus: true
+                    width: Math.min(window.width - 80, 560)
+                    height: Math.min(window.height - 120, 620)
+                    anchors.centerIn: parent
+                    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+                    padding: 0
+
+                    background: Rectangle {
+                        radius: 18
+                        color: "#2b313b"
+                        border.width: 1
+                        border.color: palette.rightCardBorder
+                    }
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 18
+                        spacing: 14
+
+                        RowLayout {
+                            Layout.fillWidth: true
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 4
+
+                                Label {
+                                    text: "Change Icon"
+                                    color: palette.rightText
+                                    font.pixelSize: 22
+                                    font.weight: Font.DemiBold
+                                }
+
+                                Label {
+                                    text: "Pick an image file or choose a system icon name."
+                                    color: palette.rightMuted
+                                    font.pixelSize: 13
+                                }
+                            }
+
+                            ToolButton {
+                                id: iconPickerCloseButton
+                                onClicked: iconPicker.close()
+                                background: Rectangle {
+                                    radius: 8
+                                    color: iconPickerCloseButton.down ? palette.iconButtonPressed : iconPickerCloseButton.hovered ? palette.iconButtonHover : "transparent"
+                                }
+                                contentItem: Text {
+                                    text: "×"
+                                    color: palette.rightText
+                                    font.pixelSize: 20
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 12
+
+                            Rectangle {
+                                Layout.preferredWidth: 64
+                                Layout.preferredHeight: 64
+                                radius: 18
+                                color: palette.rightIconWell
+
+                                Image {
+                                    anchors.centerIn: parent
+                                    width: 36
+                                    height: 36
+                                    source: "image://desktopicons/" + encodeURIComponent(appBackend ? (appBackend.selectedEntry.icon || "application-x-executable") : "application-x-executable") + "?rev=" + (appBackend ? appBackend.iconRevision : 0)
+                                    fillMode: Image.PreserveAspectFit
+                                }
+                            }
+
+                            AppButton {
+                                theme: palette
+                                text: "Use Image File"
+                                onClicked: {
+                                    iconPicker.close()
+                                    if (appBackend) appBackend.chooseIconFile()
+                                }
+                            }
+                        }
+
+                        TextField {
+                            id: iconSearchField
+                            Layout.fillWidth: true
+                            placeholderText: "Search system icons..."
+                            color: palette.rightText
+                            placeholderTextColor: palette.inkSoft
+                            onTextChanged: if (appBackend) appBackend.setIconSearchQuery(text)
+                            background: Rectangle {
+                                radius: 12
+                                color: "#263442"
+                                border.width: 1
+                                border.color: palette.rightCardBorder
+                            }
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            radius: 14
+                            color: "#263442"
+                            border.width: 1
+                            border.color: palette.rightCardBorder
+
+                            GridView {
+                                id: iconGrid
+                                objectName: "iconGrid"
+                                anchors.fill: parent
+                                anchors.margins: 8
+                                clip: true
+                                cellWidth: 104
+                                cellHeight: 96
+                                model: appBackend ? appBackend.iconNameModel : null
+
+                                delegate: Rectangle {
+                                    required property string name
+                                    required property string preview
+
+                                    width: GridView.view.cellWidth - 8
+                                    height: GridView.view.cellHeight - 8
+                                    radius: 10
+                                    color: rowMouse.containsMouse ? "#354250" : "transparent"
+                                    border.width: rowMouse.containsMouse ? 1 : 0
+                                    border.color: palette && palette.rightCardBorder !== undefined ? palette.rightCardBorder : "#4b5160"
+
+                                    ColumnLayout {
+                                        anchors.fill: parent
+                                        anchors.margins: 8
+                                        spacing: 8
+
+                                        Rectangle {
+                                            Layout.alignment: Qt.AlignHCenter
+                                            Layout.preferredWidth: 42
+                                            Layout.preferredHeight: 42
+                                            radius: 12
+                                            color: palette && palette.rightIconWell !== undefined ? palette.rightIconWell : "#454c5c"
+
+                                            Image {
+                                                anchors.centerIn: parent
+                                                width: 24
+                                                height: 24
+                                                source: "image://desktopicons/" + encodeURIComponent(preview || "application-x-executable") + "?rev=" + (appBackend ? appBackend.iconRevision : 0)
+                                                fillMode: Image.PreserveAspectFit
+                                                asynchronous: true
+                                                cache: true
+                                            }
+                                        }
+
+                                        Label {
+                                            Layout.fillWidth: true
+                                            horizontalAlignment: Text.AlignHCenter
+                                            text: name
+                                            color: palette && palette.rightText !== undefined ? palette.rightText : "#eff0f1"
+                                            maximumLineCount: 2
+                                            elide: Text.ElideRight
+                                            wrapMode: Text.Wrap
+                                            font.pixelSize: 12
+                                        }
+                                    }
+
+                                    MouseArea {
+                                        id: rowMouse
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        onClicked: {
+                                            if (appBackend && name.length > 0) appBackend.applyIconName(name)
+                                            iconPicker.close()
+                                        }
+                                    }
+                                }
+
+                                ScrollBar.vertical: ScrollBar { }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -546,21 +777,14 @@ ApplicationWindow {
 
         Item {
             width: parent ? parent.width : 0
-            implicitHeight: 116
+            implicitHeight: 72
 
             ColumnLayout {
                 anchors.centerIn: parent
-                spacing: 12
+                spacing: 0
 
                 BusyIndicator {
                     running: true
-                    Layout.alignment: Qt.AlignHCenter
-                }
-
-                Label {
-                    text: "Loading package details..."
-                    color: palette && palette.rightMuted !== undefined ? palette.rightMuted : "#bcc2cc"
-                    font.pixelSize: 13
                     Layout.alignment: Qt.AlignHCenter
                 }
             }
@@ -580,12 +804,33 @@ ApplicationWindow {
             DetailRow { theme: palette; label: "License"; value: appBackend ? (appBackend.selectedEntry.packageLicense || "") : "" }
             DetailRow { theme: palette; label: "Depends On"; value: appBackend ? (appBackend.selectedEntry.packageDepends || "") : "" }
 
-            AppButton {
-                theme: palette
-                width: implicitWidth
-                text: "Open Package URL"
-                enabled: !!(appBackend && appBackend.selectedEntry.packageUrl)
-                onClicked: if (appBackend) appBackend.openPackageUrl()
+            Rectangle {
+                id: packageUrlButton
+                visible: !!(appBackend && appBackend.selectedEntry.packageUrl)
+                implicitWidth: Math.max(138, packageUrlLabel.implicitWidth + 36)
+                implicitHeight: 34
+                radius: 2
+                color: packageUrlMouse.pressed ? "#4d5565" : packageUrlMouse.containsMouse ? "#646c7f" : "#596071"
+                border.width: 1
+                border.color: "#2a2f38"
+
+                Text {
+                    id: packageUrlLabel
+                    anchors.centerIn: parent
+                    text: "Open Package URL"
+                    color: "#eff0f1"
+                    font.pixelSize: 13
+                    font.weight: Font.Medium
+                    renderType: Text.QtRendering
+                }
+
+                MouseArea {
+                    id: packageUrlMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: if (appBackend) appBackend.openPackageUrl()
+                }
             }
         }
     }
