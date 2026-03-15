@@ -1,0 +1,7 @@
+module DesktopUI
+AppButton 1.0 AppButton.qml
+DetailCard 1.0 DetailCard.qml
+DetailRow 1.0 DetailRow.qml
+ResultDelegate 1.0 ResultDelegate.qml
+SearchField 1.0 SearchField.qml
+AppTileButton 1.0 AppTileButton.qml

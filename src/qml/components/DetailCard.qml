@@ -13,9 +13,9 @@ Frame {
 
     background: Rectangle {
         radius: 22
-        color: card.theme.rightCard
+        color: card.theme.surfaceLeft
         border.width: 1
-        border.color: card.theme.rightCardBorder
+        border.color: card.theme.borderStrong
     }
 
     ColumnLayout {
@@ -25,7 +25,7 @@ Frame {
 
         Label {
             text: card.title
-            color: card.theme.rightText
+            color: card.theme.textPrimary
             font.pixelSize: 20
             font.weight: Font.DemiBold
         }

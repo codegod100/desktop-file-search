@@ -34,6 +34,22 @@
       pkgs = nixpkgs.legacyPackages.${system};
       python = pkgs.python3;
     in {
+      qtcontrols = pkgs.stdenvNoCC.mkDerivation {
+        pname = "desktop-ui-qtcontrols";
+        version = "0.1.0";
+
+        src = builtins.path {
+          path = ./.;
+          name = "desktop-file-search-src";
+        };
+
+        installPhase = ''
+          mkdir -p $out/lib/qt-6/qml/DesktopUI
+          cp $src/src/qml/components/*.qml $out/lib/qt-6/qml/DesktopUI/
+          cp $src/src/qml/components/qmldir $out/lib/qt-6/qml/DesktopUI/
+        '';
+      };
+
       default = pkgs.stdenv.mkDerivation {
         pname = "desktop-file-search";
         version = "0.1.0";

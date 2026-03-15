@@ -10,11 +10,6 @@ Button {
     property color pressedColor: "transparent"
     property color borderColor: "transparent"
     property color textColor: "transparent"
-    readonly property color fallbackButtonBg: "#596071"
-    readonly property color fallbackButtonHover: "#646c7f"
-    readonly property color fallbackButtonPressed: "#4d5565"
-    readonly property color fallbackButtonBorder: "#2a2f38"
-    readonly property color fallbackButtonText: "#eff0f1"
 
     implicitHeight: 34
     implicitWidth: Math.max(120, contentItem.implicitWidth + leftPadding + rightPadding)
@@ -32,10 +27,8 @@ Button {
             anchors.centerIn: parent
             text: control.text
             color: control.enabled
-                ? (control.textColor.a > 0
-                    ? control.textColor
-                    : (control.theme && control.theme.buttonText !== undefined ? control.theme.buttonText : control.fallbackButtonText))
-                : "#7d8794"
+                ? (control.textColor.a > 0 ? control.textColor : control.theme.textPrimary)
+                : Qt.darker(control.theme.textSecondary, 1.5)
             font.pixelSize: 13
             font.weight: Font.Medium
             horizontalAlignment: Text.AlignHCenter
@@ -50,23 +43,15 @@ Button {
         color: control.enabled
             ? (
                 control.down
-                    ? (control.pressedColor.a > 0
-                        ? control.pressedColor
-                        : (control.theme && control.theme.buttonPressed !== undefined ? control.theme.buttonPressed : control.fallbackButtonPressed))
+                    ? (control.pressedColor.a > 0 ? control.pressedColor : Qt.darker(Qt.lighter(control.theme.surfaceRaised, 1.28), 1.12))
                     : control.hovered
-                        ? (control.hoverColor.a > 0
-                            ? control.hoverColor
-                            : (control.theme && control.theme.buttonHover !== undefined ? control.theme.buttonHover : control.fallbackButtonHover))
-                        : (control.backgroundColor.a > 0
-                            ? control.backgroundColor
-                            : (control.theme && control.theme.buttonBg !== undefined ? control.theme.buttonBg : control.fallbackButtonBg))
+                        ? (control.hoverColor.a > 0 ? control.hoverColor : Qt.lighter(Qt.lighter(control.theme.surfaceRaised, 1.28), 1.08))
+                        : (control.backgroundColor.a > 0 ? control.backgroundColor : Qt.lighter(control.theme.surfaceRaised, 1.28))
             )
-            : "#525866"
+            : Qt.darker(Qt.lighter(control.theme.surfaceRaised, 1.28), 1.08)
         border.width: 1
         border.color: control.enabled
-            ? (control.borderColor.a > 0
-                ? control.borderColor
-                : (control.theme && control.theme.buttonBorder !== undefined ? control.theme.buttonBorder : control.fallbackButtonBorder))
-            : "#454c5a"
+            ? (control.borderColor.a > 0 ? control.borderColor : control.theme.borderSoft)
+            : Qt.darker(control.theme.borderSoft, 1.08)
     }
 }

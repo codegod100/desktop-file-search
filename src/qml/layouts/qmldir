@@ -1,0 +1,5 @@
+module DesktopUI.Layouts
+DetailsPane 1.0 DetailsPane.qml
+EmptyState 1.0 EmptyState.qml
+IconPickerDialog 1.0 IconPickerDialog.qml
+ResultsPanel 1.0 ResultsPanel.qml

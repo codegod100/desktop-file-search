@@ -13,30 +13,20 @@ Rectangle {
     required property var theme
     required property bool current
 
-    readonly property color fallbackLeftCard: "#444a58"
-    readonly property color fallbackLeftCardHover: "#4b5160"
-    readonly property color fallbackLeftCardSelected: "#505767"
-    readonly property color fallbackLeftCardSelectedBorder: "#5294e2"
-    readonly property color fallbackLeftPanelBorder: "#20242b"
-    readonly property color fallbackAccentSoft: "#3b4252"
-    readonly property color fallbackInkStrong: "#eff0f1"
-    readonly property color fallbackInkMuted: "#c0c5ce"
-    readonly property color fallbackInkSoft: "#9aa3ad"
-
     signal activated()
 
     width: ListView.view.width
     height: content.implicitHeight + 26
     radius: 20
     color: current
-        ? (theme && theme.leftCardSelected !== undefined ? theme.leftCardSelected : fallbackLeftCardSelected)
+        ? Qt.darker(Qt.lighter(theme.surfaceRaised, 1.16), 1.06)
         : mouseArea.containsMouse
-            ? (theme && theme.leftCardHover !== undefined ? theme.leftCardHover : fallbackLeftCardHover)
-            : (theme && theme.leftCard !== undefined ? theme.leftCard : fallbackLeftCard)
+            ? Qt.lighter(Qt.lighter(theme.surfaceLeft, 1.08), 1.08)
+            : Qt.lighter(theme.surfaceLeft, 1.08)
     border.width: current ? 2 : 1
     border.color: current
-        ? (theme && theme.leftCardSelectedBorder !== undefined ? theme.leftCardSelectedBorder : fallbackLeftCardSelectedBorder)
-        : (theme && theme.leftPanelBorder !== undefined ? theme.leftPanelBorder : fallbackLeftPanelBorder)
+        ? theme.accentPrimary
+        : theme.borderStrong
 
     RowLayout {
         id: content
@@ -48,7 +38,7 @@ Rectangle {
             Layout.preferredWidth: 56
             Layout.preferredHeight: 56
             radius: 18
-            color: root.current ? "#5c6374" : (root.theme && root.theme.accentSoft !== undefined ? root.theme.accentSoft : fallbackAccentSoft)
+            color: root.current ? Qt.darker(Qt.lighter(theme.surfaceRaised, 1.16), 1.06) : Qt.darker(theme.surfaceRight, 1.15)
 
             Image {
                 anchors.centerIn: parent
@@ -66,7 +56,7 @@ Rectangle {
 
             Label {
                 text: root.name
-                color: root.theme && root.theme.inkStrong !== undefined ? root.theme.inkStrong : fallbackInkStrong
+                color: theme.textPrimary
                 font.pixelSize: 16
                 font.weight: Font.DemiBold
                 elide: Text.ElideRight
@@ -76,7 +66,7 @@ Rectangle {
             Label {
                 visible: root.comment.length > 0
                 text: root.comment
-                color: root.theme && root.theme.inkMuted !== undefined ? root.theme.inkMuted : fallbackInkMuted
+                color: theme.textPrimary
                 wrapMode: Text.Wrap
                 maximumLineCount: 2
                 elide: Text.ElideRight
@@ -85,7 +75,7 @@ Rectangle {
 
             Label {
                 text: root.path
-                color: root.theme && root.theme.inkSoft !== undefined ? root.theme.inkSoft : fallbackInkSoft
+                color: theme.textSecondary
                 font.pixelSize: 12
                 elide: Text.ElideMiddle
                 Layout.fillWidth: true
