@@ -17,9 +17,10 @@ Rectangle {
 
     width: ListView.view.width
     height: content.implicitHeight + 26
-    radius: 20
+    radius: 0
+    readonly property color selectedFill: Qt.darker(Qt.lighter(theme.surfaceRaised, 1.12), 1.12)
     color: current
-        ? Qt.darker(Qt.lighter(theme.surfaceRaised, 1.16), 1.06)
+        ? selectedFill
         : mouseArea.containsMouse
             ? Qt.lighter(Qt.lighter(theme.surfaceLeft, 1.08), 1.08)
             : Qt.lighter(theme.surfaceLeft, 1.08)
@@ -37,8 +38,10 @@ Rectangle {
         Rectangle {
             Layout.preferredWidth: 56
             Layout.preferredHeight: 56
-            radius: 18
-            color: root.current ? Qt.darker(Qt.lighter(theme.surfaceRaised, 1.16), 1.06) : Qt.darker(theme.surfaceRight, 1.15)
+            radius: 0
+            color: Qt.lighter(theme.surfaceRaised, 1.04)
+            border.width: 1
+            border.color: theme.borderStrong
 
             Image {
                 anchors.centerIn: parent

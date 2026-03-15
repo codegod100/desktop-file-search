@@ -11,11 +11,9 @@ Frame {
 
     padding: 16
 
-    background: Rectangle {
-        radius: 22
-        color: card.theme.surfaceLeft
-        border.width: 1
-        border.color: card.theme.borderStrong
+    background: AppSurface {
+        backgroundColor: card.theme.surfaceLeft
+        outlineColor: card.theme.borderStrong
     }
 
     ColumnLayout {

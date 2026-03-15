@@ -22,10 +22,14 @@ Item {
                 theme: root.theme
                 Layout.preferredWidth: 84
                 Layout.preferredHeight: 84
-                radius: 26
+                radius: 0
                 backgroundColor: Qt.lighter(root.theme.surfaceRaised, 1.04)
                 hoverBackgroundColor: Qt.lighter(root.theme.surfaceRaised, 1.08)
                 pressedBackgroundColor: Qt.lighter(root.theme.surfaceRaised, 1.16)
+                outlineWidth: 0
+                hoverOutlineWidth: 0
+                outlineColor: "transparent"
+                hoverOutlineColor: "transparent"
                 onClicked: if (root.iconPicker) root.iconPicker.openForSelection()
 
                 Image {
@@ -37,23 +41,77 @@ Item {
                 }
 
                 Rectangle {
+                    anchors.top: parent.top
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    height: 1
+                    color: root.theme.borderStrong
+                }
+
+                Rectangle {
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    anchors.left: parent.left
+                    width: 1
+                    color: root.theme.borderStrong
+                }
+
+                Rectangle {
+                    anchors.top: parent.top
+                    anchors.right: parent.right
+                    width: 1
+                    height: parent.height - badge.height
+                    color: root.theme.borderStrong
+                }
+
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.bottom: parent.bottom
+                    height: 1
+                    width: parent.width - badge.width
+                    color: root.theme.borderStrong
+                }
+
+                AppSurface {
+                    id: badge
                     anchors.right: parent.right
                     anchors.bottom: parent.bottom
-                    anchors.rightMargin: 6
-                    anchors.bottomMargin: 6
+                    anchors.rightMargin: 0
+                    anchors.bottomMargin: 0
                     width: 22
                     height: 22
-                    radius: 11
-                    color: Qt.darker(root.theme.accentPrimary, 1.9)
-                    border.width: 1
-                    border.color: root.theme.borderStrong
+                    topLeftRadius: 10
+                    topRightRadius: 0
+                    bottomLeftRadius: 0
+                    bottomRightRadius: 0
+                    backgroundColor: Qt.lighter(root.theme.surfaceRight, 1.12)
+                    outlineWidth: 1
+                    outlineColor: root.theme.borderStrong
 
-                    Text {
+                    Rectangle {
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        anchors.right: parent.right
+                        width: 1
+                        antialiasing: false
+                        color: badge.backgroundColor
+                    }
+
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        height: 1
+                        antialiasing: false
+                        color: badge.backgroundColor
+                    }
+
+                    Image {
                         anchors.centerIn: parent
-                        text: "+"
-                        color: root.theme.textPrimary
-                        font.pixelSize: 14
-                        font.weight: Font.DemiBold
+                        width: 12
+                        height: 12
+                        source: Qt.resolvedUrl("../icons/image-update.svg")
+                        fillMode: Image.PreserveAspectFit
                     }
                 }
             }
@@ -75,13 +133,11 @@ Item {
                     Layout.fillWidth: true
                     spacing: 0
 
-                    Rectangle {
+                    AppSurface {
                         Layout.fillWidth: true
                         implicitHeight: pathField.implicitHeight + 20
-                        radius: 12
-                        color: root.theme.surfaceLeft
-                        border.width: 1
-                        border.color: root.theme.borderStrong
+                        backgroundColor: root.theme.surfaceLeft
+                        outlineColor: root.theme.borderStrong
 
                         TextEdit {
                             id: pathField
@@ -106,14 +162,14 @@ Item {
                             anchors.verticalCenter: parent.verticalCenter
                             width: 24
                             height: 24
-                            radius: 6
+                            radius: 0
                             backgroundColor: Qt.lighter(root.theme.surfaceRight, 1.12)
                             hoverBackgroundColor: Qt.lighter(root.theme.surfaceRight, 1.16)
                             pressedBackgroundColor: Qt.darker(root.theme.surfaceRight, 1.08)
-                            outlineWidth: 1
-                            hoverOutlineWidth: 1
-                            outlineColor: Qt.lighter(root.theme.borderSoft, 1.95)
-                            hoverOutlineColor: Qt.lighter(root.theme.borderSoft, 1.7)
+                            outlineWidth: 0
+                            hoverOutlineWidth: 0
+                            outlineColor: "transparent"
+                            hoverOutlineColor: "transparent"
                             onClicked: {
                                 pathField.selectAll()
                                 pathField.copy()
@@ -180,13 +236,11 @@ Item {
                     width: parent.width
                     title: "Exec"
 
-                    Rectangle {
+                    AppSurface {
                         width: parent.width
                         implicitHeight: execRow.implicitHeight + 20
-                        radius: 12
-                        color: root.theme.surfaceLeft
-                        border.width: 1
-                        border.color: root.theme.borderStrong
+                        backgroundColor: root.theme.surfaceLeft
+                        outlineColor: root.theme.borderStrong
 
                         RowLayout {
                             id: execRow
@@ -214,14 +268,14 @@ Item {
                                 Layout.alignment: Qt.AlignTop
                                 width: 24
                                 height: 24
-                                radius: 6
+                                radius: 0
                                 backgroundColor: Qt.lighter(root.theme.surfaceRight, 1.12)
                                 hoverBackgroundColor: Qt.lighter(root.theme.surfaceRight, 1.16)
                                 pressedBackgroundColor: Qt.darker(root.theme.surfaceRight, 1.08)
-                                outlineWidth: 1
-                                hoverOutlineWidth: 1
-                                outlineColor: Qt.lighter(root.theme.borderSoft, 1.95)
-                                hoverOutlineColor: Qt.lighter(root.theme.borderSoft, 1.7)
+                                outlineWidth: 0
+                                hoverOutlineWidth: 0
+                                outlineColor: "transparent"
+                                hoverOutlineColor: "transparent"
                                 onClicked: {
                                     execLabel.selectAll()
                                     execLabel.copy()
@@ -276,6 +330,7 @@ Item {
 
             AppButton {
                 theme: root.theme
+                surfaceColor: root.theme.surfaceRight
                 Layout.preferredWidth: 210
                 text: "Open in Default Editor"
                 onClicked: if (root.backend) root.backend.openSelected()
@@ -283,6 +338,7 @@ Item {
 
             AppButton {
                 theme: root.theme
+                surfaceColor: root.theme.surfaceRight
                 Layout.preferredWidth: 190
                 text: "Choose Application..."
                 onClicked: if (root.backend) root.backend.chooseEditor()
@@ -324,6 +380,7 @@ Item {
 
             AppButton {
                 theme: root.theme
+                surfaceColor: root.theme.surfaceLeft
                 visible: !!(root.backend && root.backend.selectedEntry.packageUrl)
                 width: implicitWidth
                 text: "Open Package URL"

@@ -28,11 +28,9 @@ Popup {
         open()
     }
 
-    background: Rectangle {
-        radius: 18
-        color: root.theme.surfaceRight
-        border.width: 1
-        border.color: root.theme.borderStrong
+    background: AppSurface {
+        backgroundColor: root.theme.surfaceRight
+        outlineColor: root.theme.borderStrong
     }
 
     ColumnLayout {
@@ -66,14 +64,12 @@ Popup {
             Layout.fillWidth: true
             spacing: 18
 
-            Rectangle {
+            AppSurface {
                 Layout.alignment: Qt.AlignVCenter
                 Layout.preferredWidth: 64
                 Layout.preferredHeight: 64
-                radius: 18
-                color: Qt.lighter(root.theme.surfaceRaised, 1.04)
-                border.width: 1
-                border.color: root.theme.borderStrong
+                backgroundColor: Qt.lighter(root.theme.surfaceRaised, 1.04)
+                outlineColor: root.theme.borderStrong
 
                 Image {
                     anchors.centerIn: parent
@@ -86,6 +82,7 @@ Popup {
 
             AppButton {
                 theme: root.theme
+                surfaceColor: root.theme.surfaceRight
                 text: "Use Image File"
                 onClicked: {
                     root.close()
@@ -103,13 +100,11 @@ Popup {
             onTextChanged: if (root.backend) root.backend.setIconSearchQuery(text)
         }
 
-        Rectangle {
+        AppSurface {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            radius: 16
-            color: root.theme.surfaceLeft
-            border.width: 1
-            border.color: root.theme.borderStrong
+            backgroundColor: root.theme.surfaceLeft
+            outlineColor: root.theme.borderStrong
 
             GridView {
                 objectName: "iconGrid"
@@ -127,7 +122,7 @@ Popup {
                     theme: root.theme
                     width: GridView.view.cellWidth - 12
                     height: GridView.view.cellHeight - 10
-                    radius: 12
+                    radius: 0
                     backgroundColor: "transparent"
                     hoverBackgroundColor: Qt.lighter(root.theme.surfaceRaised, 1.08)
                     pressedBackgroundColor: Qt.lighter(root.theme.surfaceRaised, 1.16)
@@ -141,14 +136,12 @@ Popup {
                         anchors.margins: 10
                         spacing: 10
 
-                        Rectangle {
+                        AppSurface {
                             Layout.alignment: Qt.AlignHCenter
                             Layout.preferredWidth: 46
                             Layout.preferredHeight: 46
-                            radius: 14
-                            color: Qt.lighter(theme.surfaceRaised, 1.04)
-                            border.width: 1
-                            border.color: theme.borderStrong
+                            backgroundColor: Qt.lighter(theme.surfaceRaised, 1.04)
+                            outlineColor: theme.borderStrong
 
                             Image {
                                 anchors.centerIn: parent
@@ -189,7 +182,7 @@ Popup {
         theme: root.theme
         width: 32
         height: 32
-        radius: 10
+        radius: 0
         anchors.top: parent.top
         anchors.right: parent.right
         anchors.topMargin: 10

@@ -51,13 +51,11 @@ ApplicationWindow {
             backend: appBackend
         }
 
-        Rectangle {
+        AppSurface {
             SplitView.fillWidth: true
             SplitView.minimumWidth: 460
-            radius: 28
-            color: palette.surfaceRight
-            border.width: 1
-            border.color: palette.borderStrong
+            backgroundColor: palette.surfaceRight
+            outlineColor: palette.borderStrong
 
             Item {
                 anchors.fill: parent

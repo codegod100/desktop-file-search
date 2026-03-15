@@ -5,6 +5,7 @@ TextField {
     id: field
 
     required property var theme
+    readonly property color focusBorderColor: "#4f86c6"
 
     selectByMouse: true
     font.pixelSize: 15
@@ -16,10 +17,8 @@ TextField {
     color: theme.textPrimary
     placeholderTextColor: Qt.darker(theme.textSecondary, 1.25)
 
-    background: Rectangle {
-        radius: 18
-        color: field.theme.surfaceRaised
-        border.width: 1
-        border.color: field.activeFocus ? Qt.darker(field.theme.accentPrimary, 1.08) : field.theme.borderStrong
+    background: AppSurface {
+        backgroundColor: field.theme.surfaceRaised
+        outlineColor: field.activeFocus ? field.focusBorderColor : field.theme.borderStrong
     }
 }

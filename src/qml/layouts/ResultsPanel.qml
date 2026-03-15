@@ -3,7 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import "../components"
 
-Rectangle {
+AppSurface {
     id: root
 
     required property var theme
@@ -11,10 +11,8 @@ Rectangle {
 
     SplitView.preferredWidth: 500
     SplitView.minimumWidth: 360
-    radius: 28
-    color: root.theme.surfaceLeft
-    border.width: 1
-    border.color: root.theme.borderStrong
+    backgroundColor: root.theme.surfaceLeft
+    outlineColor: root.theme.borderStrong
 
     function focusSearch() {
         searchField.forceActiveFocus()
@@ -57,60 +55,51 @@ Rectangle {
             Layout.alignment: Qt.AlignHCenter
         }
 
-        Rectangle {
+        ListView {
+            id: resultsView
+            objectName: "resultsView"
             Layout.fillWidth: true
             Layout.fillHeight: true
-            radius: 22
-            color: Qt.lighter(root.theme.surfaceLeft, 1.08)
-            border.width: 1
-            border.color: root.theme.borderStrong
+            clip: true
+            spacing: 10
+            model: root.backend ? root.backend.entryModel : null
+            maximumFlickVelocity: 11000
+            flickDeceleration: 1200
 
-            ListView {
-                id: resultsView
-                objectName: "resultsView"
-                anchors.fill: parent
-                anchors.margins: 10
-                clip: true
-                spacing: 10
-                model: root.backend ? root.backend.entryModel : null
-                maximumFlickVelocity: 11000
-                flickDeceleration: 1200
-
-                delegate: ResultDelegate {
-                    theme: root.theme
-                    current: ListView.isCurrentItem
-                    onActivated: {
-                        resultsView.currentIndex = index
-                        if (root.backend)
-                            root.backend.selectEntry(index)
-                    }
+            delegate: ResultDelegate {
+                theme: root.theme
+                current: ListView.isCurrentItem
+                onActivated: {
+                    resultsView.currentIndex = index
+                    if (root.backend)
+                        root.backend.selectEntry(index)
                 }
+            }
 
-                ScrollBar.vertical: ScrollBar { }
+            ScrollBar.vertical: ScrollBar { }
 
-                WheelHandler {
-                    onWheel: function(event) {
-                        const isTouchpad = event.pixelDelta.y !== 0
-                        const delta = isTouchpad ? event.pixelDelta.y : event.angleDelta.y
-                        if (!delta)
-                            return
-                        const maxY = Math.max(0, resultsView.contentHeight - resultsView.height)
-                        const scaled = isTouchpad ? delta * 140.0 : delta * 8.5
-                        const nextY = Math.max(0, Math.min(maxY, resultsView.contentY - scaled))
-                        resultsView.contentY = nextY
-                        if (root.backend) {
-                            root.backend.recordWheelDebug(
-                                "results",
-                                event.pixelDelta.y,
-                                event.angleDelta.y,
-                                scaled,
-                                nextY,
-                                maxY
-                            )
-                        }
-                        if (isTouchpad)
-                            event.accepted = true
+            WheelHandler {
+                onWheel: function(event) {
+                    const isTouchpad = event.pixelDelta.y !== 0
+                    const delta = isTouchpad ? event.pixelDelta.y : event.angleDelta.y
+                    if (!delta)
+                        return
+                    const maxY = Math.max(0, resultsView.contentHeight - resultsView.height)
+                    const scaled = isTouchpad ? delta * 140.0 : delta * 8.5
+                    const nextY = Math.max(0, Math.min(maxY, resultsView.contentY - scaled))
+                    resultsView.contentY = nextY
+                    if (root.backend) {
+                        root.backend.recordWheelDebug(
+                            "results",
+                            event.pixelDelta.y,
+                            event.angleDelta.y,
+                            scaled,
+                            nextY,
+                            maxY
+                        )
                     }
+                    if (isTouchpad)
+                        event.accepted = true
                 }
             }
         }

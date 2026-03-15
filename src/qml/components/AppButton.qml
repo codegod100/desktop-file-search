@@ -5,6 +5,7 @@ Button {
     id: control
 
     required property var theme
+    property color surfaceColor: theme.surfaceLeft
     property color backgroundColor: "transparent"
     property color hoverColor: "transparent"
     property color pressedColor: "transparent"
@@ -29,7 +30,7 @@ Button {
             color: control.enabled
                 ? (control.textColor.a > 0 ? control.textColor : control.theme.textPrimary)
                 : Qt.darker(control.theme.textSecondary, 1.5)
-            font.pixelSize: 13
+            font.pixelSize: 15
             font.weight: Font.Medium
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
@@ -39,19 +40,20 @@ Button {
     }
 
     background: Rectangle {
-        radius: 2
+        readonly property color baseSurfaceColor: control.backgroundColor.a > 0 ? control.backgroundColor : control.surfaceColor
+        radius: 0
         color: control.enabled
             ? (
                 control.down
-                    ? (control.pressedColor.a > 0 ? control.pressedColor : Qt.darker(Qt.lighter(control.theme.surfaceRaised, 1.28), 1.12))
+                    ? (control.pressedColor.a > 0 ? control.pressedColor : Qt.darker(baseSurfaceColor, 1.08))
                     : control.hovered
-                        ? (control.hoverColor.a > 0 ? control.hoverColor : Qt.lighter(Qt.lighter(control.theme.surfaceRaised, 1.28), 1.08))
-                        : (control.backgroundColor.a > 0 ? control.backgroundColor : Qt.lighter(control.theme.surfaceRaised, 1.28))
+                        ? (control.hoverColor.a > 0 ? control.hoverColor : Qt.lighter(baseSurfaceColor, 1.08))
+                        : baseSurfaceColor
             )
-            : Qt.darker(Qt.lighter(control.theme.surfaceRaised, 1.28), 1.08)
+            : Qt.darker(baseSurfaceColor, 1.08)
         border.width: 1
         border.color: control.enabled
-            ? (control.borderColor.a > 0 ? control.borderColor : control.theme.borderSoft)
-            : Qt.darker(control.theme.borderSoft, 1.08)
+            ? (control.borderColor.a > 0 ? control.borderColor : control.theme.borderStrong)
+            : Qt.darker(control.theme.borderStrong, 1.08)
     }
 }
