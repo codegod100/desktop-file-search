@@ -10,7 +10,7 @@ import sys
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import Property, QAbstractListModel, QByteArray, QEvent, QModelIndex, QObject, Qt, QUrl, Signal, Slot, QSize
+from PySide6.QtCore import Property, QAbstractListModel, QByteArray, QEvent, QModelIndex, QObject, Qt, QTimer, QUrl, Signal, Slot, QSize
 from PySide6.QtGui import QColor, QDesktopServices, QGuiApplication, QIcon, QImage, QPainter, QWheelEvent
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuick import QQuickImageProvider
@@ -845,6 +845,7 @@ class WheelDebugFilter(QObject):
 
 class AppController(QObject):
     scanFinished = Signal(list)
+    iconCacheLoaded = Signal(dict)
     iconScanFinished = Signal(dict, list)
     entryIconScanFinished = Signal(dict)
     detailFinished = Signal(int, dict)
@@ -871,25 +872,21 @@ class AppController(QObject):
         self._detail_request = 0
         self._wheel_debug = "Wheel debug idle"
         self._all_icon_names: list[str] = []
-        self._icon_path_map: dict[str, str] = _load_persisted_icon_map()
+        self._icon_path_map: dict[str, str] = {}
         self._icon_query = ""
         self._icon_revision = 0
+        self._icon_cache_loading = False
+        self._icon_cache_loaded = False
         self._icon_index_started = False
-        self._icon_index_ready = bool(self._icon_path_map)
+        self._icon_index_ready = False
         global _icon_path_map_cache
         _icon_path_map_cache = dict(self._icon_path_map)
 
         self.scanFinished.connect(self._apply_scan_results)
+        self.iconCacheLoaded.connect(self._apply_icon_cache_results)
         self.iconScanFinished.connect(self._apply_icon_scan_results)
         self.entryIconScanFinished.connect(self._apply_entry_icon_results)
         self.detailFinished.connect(self._apply_detail_results)
-
-        if self._icon_path_map:
-            self._all_icon_names = sorted(self._icon_path_map.keys(), key=str.lower)
-            self._icon_items = [
-                {"name": name, "preview": self._icon_path_map.get(name, name)}
-                for name in self._all_icon_names[:200]
-            ]
 
     @Property("QVariantList", notify=entryModelChanged)
     def entryModel(self) -> list[dict[str, object]]:
@@ -930,6 +927,14 @@ class AppController(QObject):
         self._set_scanning(True)
         self._set_status_text("Scanning for desktop files...")
         worker = threading.Thread(target=self._scan_worker, daemon=True)
+        worker.start()
+
+    @Slot()
+    def warmCaches(self) -> None:
+        if self._icon_cache_loaded or self._icon_cache_loading:
+            return
+        self._icon_cache_loading = True
+        worker = threading.Thread(target=self._icon_cache_worker, daemon=True)
         worker.start()
 
     @Slot(str)
@@ -1028,6 +1033,13 @@ class AppController(QObject):
 
     @Slot()
     def startIconIndex(self) -> None:
+        self.warmCaches()
+        if not self._icon_index_ready and self._icon_path_map:
+            self._all_icon_names = sorted(self._icon_path_map.keys(), key=str.lower)
+            self._icon_index_ready = True
+            self._update_icon_picker_items(self._icon_query)
+            self.iconNameModelChanged.emit()
+            self.iconSearchChanged.emit()
         if self._icon_index_started:
             return
         self._icon_index_started = True
@@ -1067,6 +1079,13 @@ class AppController(QObject):
         names = sorted(icon_map.keys(), key=str.lower)
         try:
             self.iconScanFinished.emit(icon_map, names)
+        except RuntimeError:
+            pass
+
+    def _icon_cache_worker(self) -> None:
+        icon_map = _load_persisted_icon_map()
+        try:
+            self.iconCacheLoaded.emit(icon_map)
         except RuntimeError:
             pass
 
@@ -1137,6 +1156,23 @@ class AppController(QObject):
         self._icon_revision += 1
         self.iconNameModelChanged.emit()
         self.iconSearchChanged.emit()
+        self.iconRevisionChanged.emit()
+        self.entryModelChanged.emit()
+        self.selectedEntryChanged.emit()
+
+    @Slot(dict)
+    def _apply_icon_cache_results(self, icon_map: dict[str, str]) -> None:
+        self._icon_cache_loading = False
+        self._icon_cache_loaded = True
+        if not icon_map:
+            return
+
+        global _icon_path_map_cache
+        merged_map = dict(self._icon_path_map)
+        merged_map.update(icon_map)
+        self._icon_path_map = merged_map
+        _icon_path_map_cache = merged_map
+        self._icon_revision += 1
         self.iconRevisionChanged.emit()
         self.entryModelChanged.emit()
         self.selectedEntryChanged.emit()
@@ -1261,7 +1297,8 @@ def main() -> int:
     if not engine.rootObjects():
         return 1
 
-    controller.startScan()
+    QTimer.singleShot(0, controller.startScan)
+    QTimer.singleShot(0, controller.warmCaches)
     return app.exec()
 
 
