@@ -1,5 +1,5 @@
 {
-  description = "Desktop File Search - GTK4 application in Zig";
+  description = "Desktop File Search - Qt Quick application in Python";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -17,61 +17,58 @@
     in {
       default = pkgs.mkShell {
         buildInputs = with pkgs; [
-          zig
-          pkg-config
-          gtk4
-          glib
-          pango
-          cairo
-          gdk-pixbuf
-          graphene
-          harfbuzz
-          wrapGAppsHook4
+          python3
+          python3Packages.pyside6
+          qt6.qtdeclarative
         ];
 
         shellHook = ''
           echo "Desktop File Search development environment"
-          echo "Zig version: $(zig version)"
-          echo "Run 'zig build run' to build and run the app"
+          echo "Python version: $(python --version)"
+          echo "Run 'python src/main.py' to start the app"
         '';
       };
     });
 
     packages = forAllSystems (system: let
       pkgs = nixpkgs.legacyPackages.${system};
+      python = pkgs.python3;
     in {
       default = pkgs.stdenv.mkDerivation {
         pname = "desktop-file-search";
         version = "0.1.0";
 
-        src = ./.;
+        src = builtins.path {
+          path = ./.;
+          name = "desktop-file-search-src";
+        };
+        dontWrapQtApps = true;
 
         nativeBuildInputs = with pkgs; [
-          zig
-          pkg-config
-          wrapGAppsHook4
+          makeWrapper
         ];
 
         buildInputs = with pkgs; [
-          gtk4
-          glib
-          pango
-          cairo
-          gdk-pixbuf
-          graphene
-          harfbuzz
+          python
+          python.pkgs.pyside6
+          qt6.qtbase
+          qt6.qtdeclarative
         ];
-
-        buildPhase = ''
-          zig build --release=safe
-        '';
 
         installPhase = ''
           mkdir -p $out/bin
-          cp zig-out/bin/desktop-file-search $out/bin/
-          
+          mkdir -p $out/share/desktop-file-search
+          cp -r $src/src $out/share/desktop-file-search/
+
+          makeWrapper ${python}/bin/python $out/bin/desktop-file-search \
+            --add-flags $out/share/desktop-file-search/src/main.py \
+            --prefix PYTHONPATH : ${python.pkgs.pyside6}/${python.sitePackages} \
+            --prefix PYTHONPATH : ${python.pkgs.shiboken6}/${python.sitePackages} \
+            --prefix QML2_IMPORT_PATH : ${pkgs.qt6.qtdeclarative}/lib/qt-6/qml \
+            --prefix QT_PLUGIN_PATH : ${pkgs.qt6.qtbase}/lib/qt-6/plugins
+
           mkdir -p $out/share/applications
-          cp desktop-file-search.desktop $out/share/applications/
+          cp $src/desktop-file-search.desktop $out/share/applications/
           substituteInPlace $out/share/applications/desktop-file-search.desktop \
             --replace "Exec=desktop-file-search" "Exec=$out/bin/desktop-file-search"
         '';

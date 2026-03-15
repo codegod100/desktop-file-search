@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=Desktop File Search
 Comment=Browse and search desktop files with pacman integration
-Exec=/home/nandi/code/desktop/zig-out/bin/desktop-file-search
+Exec=desktop-file-search
 Icon=folder
 Type=Application
 Categories=System;Utility;
