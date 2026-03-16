@@ -17,7 +17,9 @@ from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuick import QQuickImageProvider
 from PySide6.QtQuickControls2 import QQuickStyle
 from PySide6.QtSvg import QSvgRenderer
-from PySide6.QtWidgets import QApplication, QFileDialog
+from PySide6.QtWidgets import QApplication
+
+from file_dialog import get_open_file_name
 
 
 STANDARD_PATHS = (
@@ -1018,11 +1020,7 @@ class AppController(QObject):
         if not path:
             return
 
-        chosen, _ = QFileDialog.getOpenFileName(
-            None,
-            "Choose Editor",
-            "/usr/bin",
-        )
+        chosen = get_open_file_name("Choose Editor", "/usr/bin")
         if not chosen:
             return
 
@@ -1068,8 +1066,7 @@ class AppController(QObject):
         path = str(self._selected_entry.get("path", ""))
         if not path:
             return
-        chosen, _ = QFileDialog.getOpenFileName(
-            None,
+        chosen = get_open_file_name(
             "Choose Icon File",
             str(Path.home()),
             "Images (*.png *.svg *.xpm *.jpg *.jpeg *.webp)",
